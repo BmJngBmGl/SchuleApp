@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-Icon-Vordergrund: nur der mittlere ~66dp-Kreis (Safe Zone)
+     wird auf allen Geraeten garantiert sichtbar dargestellt. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Stilisiertes "V" (fuer Vault), aus zwei sich kreuzenden Balken -->
+    <path
+        android:fillColor="#29F1E3"
+        android:pathData="M34,30 L54,74 L47,74 L27,30 Z" />
+    <path
+        android:fillColor="#A26BFA"
+        android:pathData="M74,30 L54,74 L61,74 L81,30 Z" />
+    <!-- Kleiner Knotenpunkt an der Spitze, als Akzent -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,74 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+</vector>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Push-Benachrichtigungen (ab Android 13 / API 33 explizit noetig) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Hinweis: kein RECEIVE_BOOT_COMPLETED/SCHEDULE_EXACT_ALARM noetig -
+         WorkManager persistiert eingeplante Arbeit selbststaendig ueber
+         Geraete-Neustarts hinweg (eigener interner Mechanismus), und bei
+         Erinnerungen mit 7/3/1 Tagen Vorlauf kommt es auf Sekunden-Praezision
+         ohnehin nicht an, sodass kein exaktes AlarmManager-Scheduling
+         (mit dessen zusaetzlicher Berechtigungshuerde) noetig ist. -->
+
+
+    <application
+        android:name=".SchuleVaultApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.SchuleVault"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.SchuleVault">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

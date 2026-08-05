@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Dieses XML-Theme wird nur fuer den (sehr kurzen) Moment vor dem
+        ersten Compose-Frame verwendet, u. a. als Fensterhintergrundfarbe.
+        Das eigentliche Farbschema/Typografie kommt aus
+        ui/theme/Theme.kt (SchuleVaultTheme) - siehe dort.
+    -->
+    <style name="Theme.SchuleVault" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/space_black</item>
+        <item name="android:statusBarColor">@color/space_black</item>
+        <item name="android:navigationBarColor">@color/space_black</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

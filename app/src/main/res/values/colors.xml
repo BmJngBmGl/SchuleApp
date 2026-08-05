@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Muss farblich mit SpaceBlack in ui/theme/Color.kt uebereinstimmen. -->
+    <color name="space_black">#05070D</color>
+    <color name="neon_cyan">#29F1E3</color>
+</resources>
