@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
@@ -32,13 +34,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import de.wunstorf.schulevault.data.Termin
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerminEingabeScreen(
+    bearbeitenTermin: Termin? = null,
     onSpeichern: (
         titel: String,
         datum: kotlinx.datetime.LocalDate,
@@ -46,26 +51,40 @@ fun TerminEingabeScreen(
         notizText: String,
         callback: (Boolean) -> Unit
     ) -> Unit,
+    onLoeschen: ((callback: (Boolean) -> Unit) -> Unit)? = null,
     onZurueck: () -> Unit
 ) {
-    var titel by remember { mutableStateOf("") }
-    var notizText by remember { mutableStateOf("") }
-    var istSchulisch by remember { mutableStateOf(true) }
+    var titel by remember { mutableStateOf(bearbeitenTermin?.titel ?: "") }
+    var notizText by remember { mutableStateOf(bearbeitenTermin?.notizText ?: "") }
+    var istSchulisch by remember { mutableStateOf(bearbeitenTermin?.istSchulisch ?: true) }
     var datumPickerOffen by remember { mutableStateOf(false) }
     var speichernLaeuft by remember { mutableStateOf(false) }
+    var loeschenLaeuft by remember { mutableStateOf(false) }
+    var loeschenBestaetigenOffen by remember { mutableStateOf(false) }
     var fehlermeldung by remember { mutableStateOf<String?>(null) }
 
-    val datePickerState = rememberDatePickerState()
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = bearbeitenTermin?.datum
+            ?.atStartOfDayIn(TimeZone.UTC)
+            ?.toEpochMilliseconds()
+    )
     val ausgewaehltesDatum = datePickerState.selectedDateMillis?.let { millis ->
         Instant.fromEpochMilliseconds(millis).toLocalDateTime(TimeZone.UTC).date
     }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Neuer Termin") },
+                title = { Text(if (bearbeitenTermin != null) "Termin bearbeiten" else "Neuer Termin") },
                 navigationIcon = {
                     IconButton(onClick = onZurueck) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Zurück")
+                    }
+                },
+                actions = {
+                    if (onLoeschen != null) {
+                        IconButton(onClick = { loeschenBestaetigenOffen = true }, enabled = !loeschenLaeuft) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Termin löschen")
+                        }
                     }
                 }
             )
@@ -139,12 +158,37 @@ fun TerminEingabeScreen(
                         }
                     }
                 },
-                enabled = !speichernLaeuft,
+                enabled = !speichernLaeuft && !loeschenLaeuft,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(if (speichernLaeuft) "Speichert..." else "Termin speichern")
             }
         }
+    }
+
+    if (loeschenBestaetigenOffen) {
+        AlertDialog(
+            onDismissRequest = { loeschenBestaetigenOffen = false },
+            title = { Text("Termin löschen?") },
+            text = { Text("\"$titel\" wird unwiderruflich aus dem Vault entfernt.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    loeschenBestaetigenOffen = false
+                    loeschenLaeuft = true
+                    onLoeschen?.invoke { erfolgreich ->
+                        loeschenLaeuft = false
+                        if (erfolgreich) {
+                            onZurueck()
+                        } else {
+                            fehlermeldung = "Löschen fehlgeschlagen - Ordner noch verbunden?"
+                        }
+                    }
+                }) { Text("Löschen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { loeschenBestaetigenOffen = false }) { Text("Abbrechen") }
+            }
+        )
     }
 
     if (datumPickerOffen) {

@@ -40,6 +40,7 @@ fun FachDetailScreen(
 ) {
     val context = LocalContext.current
     var notizen by remember { mutableStateOf<List<VaultNote>?>(null) }
+    var ausgeklappteNotizen by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(fach, vaultUri) {
         if (vaultUri != null) {
@@ -77,13 +78,30 @@ fun FachDetailScreen(
                 item { Text("Keine Notizen in diesem Ordner gefunden.") }
             }
             items(aktuelleNotizen) { notiz ->
-                GlowCard {
+                val istAusgeklappt = ausgeklappteNotizen.contains(notiz.documentId)
+                GlowCard(
+                    onClick = {
+                        ausgeklappteNotizen = if (istAusgeklappt) {
+                            ausgeklappteNotizen - notiz.documentId
+                        } else {
+                            ausgeklappteNotizen + notiz.documentId
+                        }
+                    }
+                ) {
                     Text(notiz.title, style = MaterialTheme.typography.titleMedium)
                     if (notiz.themen.isNotEmpty()) {
                         Text(
                             notiz.themen.joinToString(" · "),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (istAusgeklappt && notiz.body.isNotBlank()) {
+                        Text(
+                            notiz.body,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 10.dp)
                         )
                     }
                 }

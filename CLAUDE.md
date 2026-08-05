@@ -59,20 +59,31 @@ echtem Git-Zugriff) zu Claude Code.
 
 ## Bekannte offene Punkte / mögliche nächste Schritte
 
-- Bearbeiten/Löschen bestehender Termine (aktuell nur Anlegen möglich)
-- Volltextsuche über alle Notizen
-- Anzeige des Notiz-Inhalts (Body), aktuell in `FachDetailScreen` nur
-  Titel + Themen sichtbar
-- Fehlerbehandlung, falls die SAF-Berechtigung vom System entzogen wird
-  (z. B. nach Umbenennung/Verschieben des Vault-Ordners)
-- Gradle-Wrapper (`gradlew`) fehlt bewusst im ursprünglichen ZIP (Binärdatei);
-  falls noch nicht geschehen, mit `gradle wrapper` erzeugen und committen,
-  damit Builds außerhalb von Android Studio (z. B. CI) reproduzierbar sind
-- Ggf. GitHub Actions für automatisierte Debug-Builds einrichten
+Alle Punkte aus der ursprünglichen Übergabe sind umgesetzt:
+
+- Bearbeiten/Löschen bestehender Termine: `TerminEingabeScreen` hat jetzt einen
+  optionalen `bearbeitenTermin`-Modus (Felder vorbefüllt, Speichern überschreibt/
+  benennt die bestehende Datei um) sowie einen Löschen-Button mit Bestätigungsdialog.
+  Klick auf eine Terminkarte in `UebersichtScreen` navigiert dorthin.
+- Volltextsuche über alle Notizen: neuer `SucheScreen`, erreichbar über das
+  Such-Icon in der `UebersichtScreen`-TopAppBar. `VaultRepository.sucheAlleNotizen`
+  durchsucht Titel/Body/Themen über alle Ordner hinweg (inkl. "Termine").
+- Anzeige des Notiz-Inhalts (Body): Notizkarten in `FachDetailScreen` und
+  `SucheScreen` sind anklickbar und klappen den Body ein/aus (`GlowCard` hat dafür
+  einen optionalen `onClick`-Parameter bekommen).
+- Fehlerbehandlung bei entzogener SAF-Berechtigung:
+  `VaultRepository.hatGueltigeBerechtigung` prüft `persistedUriPermissions` vor
+  jedem Ladevorgang; bei Verlust wird die gespeicherte URI gelöscht und der
+  Nutzer landet mit einer erklärenden Fehlermeldung zurück auf
+  `OrdnerAuswaehlenScreen`.
+- Gradle-Wrapper ist erzeugt und committed (Gradle 8.7, passend zu AGP 8.6.0).
+- GitHub Actions: `.github/workflows/android-debug-build.yml` baut bei jedem
+  Push/PR auf `main` die Debug-APK (JDK 17) und lädt sie als Artifact hoch.
 
 ## Git
 
-Noch kein Repo initialisiert (Stand Übergabe). Falls das hier neu passiert:
+Repo ist initialisiert und mit einem GitHub-Remote verbunden (Repo-URL siehe
+`git remote -v`). Falls das hier neu passiert:
 
 ```bash
 git init

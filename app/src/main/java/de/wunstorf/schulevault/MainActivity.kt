@@ -19,6 +19,7 @@ import de.wunstorf.schulevault.ui.NavRoutes
 import de.wunstorf.schulevault.ui.screens.FachDetailScreen
 import de.wunstorf.schulevault.ui.screens.LernnotizEingabeScreen
 import de.wunstorf.schulevault.ui.screens.OrdnerAuswaehlenScreen
+import de.wunstorf.schulevault.ui.screens.SucheScreen
 import de.wunstorf.schulevault.ui.screens.TerminEingabeScreen
 import de.wunstorf.schulevault.ui.screens.UebersichtScreen
 import de.wunstorf.schulevault.ui.theme.SchuleVaultTheme
@@ -79,7 +80,10 @@ private fun SchuleVaultApp(
         // Kein Vault-Ordner ausgewaehlt -> Onboarding-Bildschirm statt
         // NavHost, da ohne Ordner ohnehin keine der anderen Ansichten
         // sinnvoll etwas anzeigen koennte.
-        OrdnerAuswaehlenScreen(onOrdnerAuswaehlenGeklickt = onOrdnerAuswaehlenGeklickt)
+        OrdnerAuswaehlenScreen(
+            onOrdnerAuswaehlenGeklickt = onOrdnerAuswaehlenGeklickt,
+            fehlermeldung = uiState.fehlermeldung
+        )
         return
     }
 
@@ -91,7 +95,9 @@ private fun SchuleVaultApp(
                 onLernnotizEingabeClick = { navController.navigate(NavRoutes.LERNNOTIZ_EINGABE) },
                 onFachClick = { fach -> navController.navigate(NavRoutes.fachDetail(fach)) },
                 onOrdnerWechselnClick = onOrdnerAuswaehlenGeklickt,
-                onNeuLadenClick = { viewModel.ordnerNeuLaden() }
+                onNeuLadenClick = { viewModel.ordnerNeuLaden() },
+                onSucheClick = { navController.navigate(NavRoutes.SUCHE) },
+                onTerminClick = { termin -> navController.navigate(NavRoutes.terminBearbeiten(termin.note.fileName)) }
             )
         }
         composable(NavRoutes.TERMIN_EINGABE) {
@@ -99,6 +105,31 @@ private fun SchuleVaultApp(
                 onSpeichern = { titel, datum, istSchulisch, text, callback ->
                     viewModel.neuenTerminAnlegen(titel, datum, istSchulisch, text, callback)
                 },
+                onZurueck = { navController.popBackStack() }
+            )
+        }
+        composable(
+            route = NavRoutes.TERMIN_BEARBEITEN,
+            arguments = listOf(androidx.navigation.navArgument("dateiname") {
+                type = androidx.navigation.NavType.StringType
+            })
+        ) { backStackEntry ->
+            val dateiname = backStackEntry.arguments?.getString("dateiname") ?: return@composable
+            val termin = uiState.termine.find { it.note.fileName == dateiname } ?: return@composable
+            TerminEingabeScreen(
+                bearbeitenTermin = termin,
+                onSpeichern = { titel, datum, istSchulisch, text, callback ->
+                    viewModel.terminAktualisieren(termin, titel, datum, istSchulisch, text, callback)
+                },
+                onLoeschen = { callback -> viewModel.terminLoeschen(termin, callback) },
+                onZurueck = { navController.popBackStack() }
+            )
+        }
+        composable(NavRoutes.SUCHE) {
+            val sucheErgebnisse by viewModel.sucheErgebnisse.collectAsState()
+            SucheScreen(
+                ergebnisse = sucheErgebnisse,
+                onQueryChange = { query -> viewModel.sucheNotizen(query) },
                 onZurueck = { navController.popBackStack() }
             )
         }

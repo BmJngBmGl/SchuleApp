@@ -1,0 +1,32 @@
+name: Android Debug Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JDK 17 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Gradle Wrapper ausfuehrbar machen
+        run: chmod +x gradlew
+
+      - name: Debug-APK bauen
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Debug-APK als Artifact hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: schulevault-debug-apk
+          path: app/build/outputs/apk/debug/*.apk

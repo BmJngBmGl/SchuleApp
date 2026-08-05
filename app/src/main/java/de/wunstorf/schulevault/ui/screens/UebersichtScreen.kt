@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,7 +62,9 @@ fun UebersichtScreen(
     onLernnotizEingabeClick: () -> Unit,
     onFachClick: (String) -> Unit,
     onOrdnerWechselnClick: () -> Unit,
-    onNeuLadenClick: () -> Unit
+    onNeuLadenClick: () -> Unit,
+    onSucheClick: () -> Unit,
+    onTerminClick: (Termin) -> Unit
 ) {
     var fabMenuOffen by remember { mutableStateOf(false) }
 
@@ -70,6 +73,9 @@ fun UebersichtScreen(
             TopAppBar(
                 title = { Text("SchuleVault", style = MaterialTheme.typography.titleLarge) },
                 actions = {
+                    IconButton(onClick = onSucheClick) {
+                        Icon(Icons.Filled.Search, contentDescription = "Suche")
+                    }
                     IconButton(onClick = onNeuLadenClick) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Neu laden")
                     }
@@ -137,7 +143,7 @@ fun UebersichtScreen(
                 }
             } else {
                 items(kommendeTermine) { termin ->
-                    TerminKarte(termin = termin, heute = heute)
+                    TerminKarte(termin = termin, heute = heute, onClick = { onTerminClick(termin) })
                 }
             }
 
@@ -175,7 +181,7 @@ fun UebersichtScreen(
 }
 
 @Composable
-private fun TerminKarte(termin: Termin, heute: kotlinx.datetime.LocalDate) {
+private fun TerminKarte(termin: Termin, heute: kotlinx.datetime.LocalDate, onClick: () -> Unit) {
     val tageBis = heute.daysUntil(termin.datum)
     val akzent = when {
         tageBis <= 1 -> NeonMagenta
@@ -184,7 +190,7 @@ private fun TerminKarte(termin: Termin, heute: kotlinx.datetime.LocalDate) {
         else -> NeonCyan
     }
 
-    GlowCard(akzentFarbe = akzent) {
+    GlowCard(akzentFarbe = akzent, onClick = onClick) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

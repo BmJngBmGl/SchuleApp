@@ -156,6 +156,89 @@ class VaultRepository(private val context: Context) {
         return schreibeNeueDatei(ordner, dateiName, inhalt)
     }
 
+    /**
+     * Ueberschreibt einen bestehenden Termin. Bei Titeländerung wird die
+     * Datei umbenannt (Vault-Konvention: Dateiname = Titel) - danach muss
+     * der DocumentFile-Handle per findFile() neu geholt werden, da er nach
+     * renameTo() laut Android-Doku als ungueltig gilt.
+     */
+    fun terminAktualisieren(
+        rootUri: Uri,
+        note: VaultNote,
+        titel: String,
+        datum: LocalDate,
+        istSchulisch: Boolean,
+        notizText: String
+    ): Boolean {
+        val ordner = findFolder(rootUri, "Termine") ?: return false
+        var doc = ordner.findFile(note.fileName) ?: return false
+
+        val neuerDateiName = "${dateiNameAusTitel(titel)}.md"
+        if (doc.name != neuerDateiName) {
+            if (!doc.renameTo(neuerDateiName)) return false
+            doc = ordner.findFile(neuerDateiName) ?: return false
+        }
+
+        val datumFormatiert = "%02d-%02d-%04d".format(datum.dayOfMonth, datum.monthNumber, datum.year)
+        val tags = mutableListOf("termin")
+        if (istSchulisch) tags.add("schule")
+        val frontmatter = linkedMapOf(
+            "datum" to "\"$datumFormatiert\"",
+            "tags" to FrontmatterParser.formatList(tags)
+        )
+        val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
+
+        return try {
+            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
+                OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Loescht einen Termin unwiderruflich. Erinnerungen muss der Aufrufer separat stornieren. */
+    fun terminLoeschen(rootUri: Uri, note: VaultNote): Boolean {
+        val ordner = findFolder(rootUri, "Termine") ?: return false
+        val doc = ordner.findFile(note.fileName) ?: return false
+        return try {
+            doc.delete()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Durchsucht alle Notizen ueber saemtliche Vault-Ordner hinweg (inkl.
+     * "Termine") case-insensitiv nach Titel, Body und Themen. Bewusst ohne
+     * Index/Cache - bei den ueblichen Vault-Groessen fuer ein Schuljahr
+     * reicht ein einfacher linearer Scan voellig aus.
+     */
+    fun sucheAlleNotizen(rootUri: Uri, query: String): List<VaultNote> {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return emptyList()
+        return listTopLevelFolders(rootUri)
+            .mapNotNull { it.name }
+            .flatMap { listNotesInFolder(rootUri, it) }
+            .filter { note ->
+                note.title.lowercase().contains(q) ||
+                    note.body.lowercase().contains(q) ||
+                    note.themen.any { it.lowercase().contains(q) }
+            }
+            .sortedBy { it.title }
+    }
+
+    /**
+     * Prueft, ob die dauerhafte SAF-Berechtigung fuer den Vault-Ordner noch
+     * besteht. Kann z. B. nach Umbenennen/Verschieben des Ordners oder nach
+     * einem Reset der App-Berechtigungen durch das System entzogen werden.
+     */
+    fun hatGueltigeBerechtigung(rootUri: Uri): Boolean =
+        context.contentResolver.persistedUriPermissions.any {
+            it.uri == rootUri && it.isReadPermission
+        }
+
     private fun schreibeNeueDatei(ordner: DocumentFile, dateiName: String, inhalt: String): Boolean {
         return try {
             val neueDatei = ordner.createFile("text/markdown", dateiName) ?: return false

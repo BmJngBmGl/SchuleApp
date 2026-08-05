@@ -18,7 +18,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun OrdnerAuswaehlenScreen(onOrdnerAuswaehlenGeklickt: () -> Unit) {
+fun OrdnerAuswaehlenScreen(
+    onOrdnerAuswaehlenGeklickt: () -> Unit,
+    fehlermeldung: String? = null
+) {
     Scaffold { padding ->
         Column(
             modifier = Modifier
@@ -50,6 +53,15 @@ fun OrdnerAuswaehlenScreen(onOrdnerAuswaehlenGeklickt: () -> Unit) {
             )
             Button(onClick = onOrdnerAuswaehlenGeklickt) {
                 Text("Ordner auswaehlen")
+            }
+            fehlermeldung?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 20.dp)
+                )
             }
         }
     }

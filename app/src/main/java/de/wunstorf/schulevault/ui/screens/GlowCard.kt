@@ -22,17 +22,32 @@ import androidx.compose.ui.unit.dp
 fun GlowCard(
     modifier: Modifier = Modifier,
     akzentFarbe: Color = MaterialTheme.colorScheme.primary,
+    onClick: (() -> Unit)? = null,
     content: ColumnScopeContent
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        border = BorderStroke(1.dp, akzentFarbe.copy(alpha = 0.45f))
-    ) {
+    val innerContent: ColumnScopeContent = {
         Column(modifier = Modifier.padding(18.dp)) {
             content()
         }
+    }
+
+    if (onClick != null) {
+        Card(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            border = BorderStroke(1.dp, akzentFarbe.copy(alpha = 0.45f)),
+            content = innerContent
+        )
+    } else {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            border = BorderStroke(1.dp, akzentFarbe.copy(alpha = 0.45f)),
+            content = innerContent
+        )
     }
 }
 
