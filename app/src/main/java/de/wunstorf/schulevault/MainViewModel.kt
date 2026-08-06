@@ -5,16 +5,22 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.wunstorf.schulevault.data.Hausaufgabe
+import de.wunstorf.schulevault.data.IServKalenderConfig
+import de.wunstorf.schulevault.data.IServPreferences
+import de.wunstorf.schulevault.data.IServTermin
+import de.wunstorf.schulevault.data.Klausur
 import de.wunstorf.schulevault.data.Termin
 import de.wunstorf.schulevault.data.VaultNote
 import de.wunstorf.schulevault.data.VaultPreferences
 import de.wunstorf.schulevault.data.VaultRepository
+import de.wunstorf.schulevault.iserv.IServSyncClient
 import de.wunstorf.schulevault.notifications.NotificationScheduler
 import de.wunstorf.schulevault.update.UpdateChecker
 import de.wunstorf.schulevault.update.UpdateInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
@@ -26,6 +32,7 @@ data class VaultUiState(
     val ladeLaeuft: Boolean = false,
     val termine: List<Termin> = emptyList(),
     val hausaufgaben: List<Hausaufgabe> = emptyList(),
+    val klausuren: List<Klausur> = emptyList(),
     val faecher: List<String> = emptyList(),
     val fehlermeldung: String? = null
 )
@@ -34,6 +41,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = VaultRepository(application)
     private val preferences = VaultPreferences(application)
+    private val iservPreferences = IServPreferences(application)
 
     private val _uiState = MutableStateFlow(VaultUiState())
     val uiState: StateFlow<VaultUiState> = _uiState.asStateFlow()
@@ -43,6 +51,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _updateInfo = MutableStateFlow<UpdateInfo?>(null)
     val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
+
+    private val _iservTermine = MutableStateFlow<List<IServTermin>>(emptyList())
+    val iservTermine: StateFlow<List<IServTermin>> = _iservTermine.asStateFlow()
+
+    private val _iservSyncLaeuft = MutableStateFlow(false)
+    val iservSyncLaeuft: StateFlow<Boolean> = _iservSyncLaeuft.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -60,6 +74,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (neuesteVersion != null && neuesteVersion.versionName != BuildConfig.VERSION_NAME) {
                 _updateInfo.value = neuesteVersion
             }
+        }
+        iservTermineNeuLaden()
+    }
+
+    /** Laedt alle konfigurierten IServ-Kalender neu - einmal beim Start und erneut bei jedem manuellen "Neu laden". */
+    private fun iservTermineNeuLaden() {
+        viewModelScope.launch {
+            val kalenderListe = iservPreferences.kalenderListe.first()
+            val benutzername = iservPreferences.benutzername.first()
+            val passwort = iservPreferences.passwort.first()
+            if (kalenderListe.isEmpty() || benutzername.isNullOrBlank() || passwort.isNullOrBlank()) {
+                return@launch
+            }
+            _iservSyncLaeuft.value = true
+            _iservTermine.value = IServSyncClient.ladeTermine(kalenderListe, benutzername, passwort)
+            _iservSyncLaeuft.value = false
+        }
+    }
+
+    fun iservEinstellungenSpeichern(
+        benutzername: String,
+        passwort: String,
+        kalenderListe: List<IServKalenderConfig>
+    ) {
+        viewModelScope.launch {
+            iservPreferences.speichern(benutzername, passwort, kalenderListe)
+            iservTermineNeuLaden()
         }
     }
 
@@ -90,13 +131,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val termine = repository.loadAlleTermine(uri)
                 val hausaufgaben = repository.loadAlleHausaufgaben(uri)
+                val klausuren = repository.loadAlleKlausuren(uri)
                 val faecher = repository.listTopLevelFolders(uri)
                     .mapNotNull { it.name }
-                    .filter { it != "Termine" && it != "Hausaufgaben" } // beide haben eigene Bereiche in der UI
+                    .filter { it != "Termine" && it != "Hausaufgaben" && it != "Klausuren" } // haben eigene Bereiche in der UI
                 _uiState.value = _uiState.value.copy(
                     ladeLaeuft = false,
                     termine = termine,
                     hausaufgaben = hausaufgaben,
+                    klausuren = klausuren,
                     faecher = faecher
                 )
                 // Fuer alle geladenen (und noch in der Zukunft liegenden)
@@ -147,6 +190,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun ordnerNeuLaden() {
         _uiState.value.vaultUri?.let { ladeVaultDaten(it) }
+        iservTermineNeuLaden()
     }
 
     fun terminAktualisieren(
@@ -245,6 +289,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val uri = _uiState.value.vaultUri ?: return onFertig(false)
         viewModelScope.launch {
             val erfolgreich = repository.hausaufgabeLoeschen(uri, hausaufgabe.note)
+            if (erfolgreich) ladeVaultDaten(uri)
+            onFertig(erfolgreich)
+        }
+    }
+
+    fun neueKlausurAnlegen(
+        fach: String,
+        titel: String,
+        datum: LocalDate,
+        relevanteThemen: List<String>,
+        onFertig: (Boolean) -> Unit
+    ) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        viewModelScope.launch {
+            val erfolgreich = repository.neueKlausurSpeichern(uri, fach, titel, datum, relevanteThemen)
+            if (erfolgreich) ladeVaultDaten(uri)
+            onFertig(erfolgreich)
+        }
+    }
+
+    fun klausurAktualisieren(
+        klausur: Klausur,
+        fach: String,
+        titel: String,
+        datum: LocalDate,
+        relevanteThemen: List<String>,
+        onFertig: (Boolean) -> Unit
+    ) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        viewModelScope.launch {
+            val erfolgreich = repository.klausurAktualisieren(uri, klausur.note, fach, titel, datum, relevanteThemen)
+            if (erfolgreich) ladeVaultDaten(uri)
+            onFertig(erfolgreich)
+        }
+    }
+
+    fun klausurLoeschen(klausur: Klausur, onFertig: (Boolean) -> Unit) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        viewModelScope.launch {
+            val erfolgreich = repository.klausurLoeschen(uri, klausur.note)
             if (erfolgreich) ladeVaultDaten(uri)
             onFertig(erfolgreich)
         }

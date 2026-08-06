@@ -19,10 +19,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,6 +50,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import de.wunstorf.schulevault.VaultUiState
 import de.wunstorf.schulevault.data.Hausaufgabe
+import de.wunstorf.schulevault.data.IServTermin
+import de.wunstorf.schulevault.data.Klausur
 import de.wunstorf.schulevault.data.Termin
 import de.wunstorf.schulevault.ui.theme.NeonAmber
 import de.wunstorf.schulevault.ui.theme.NeonCyan
@@ -72,7 +76,11 @@ fun UebersichtScreen(
     onStundenplanClick: () -> Unit,
     onHausaufgabeEingabeClick: () -> Unit,
     onHausaufgabeClick: (Hausaufgabe) -> Unit,
-    onHausaufgabeErledigtToggle: (Hausaufgabe, Boolean) -> Unit
+    onHausaufgabeErledigtToggle: (Hausaufgabe, Boolean) -> Unit,
+    iservTermine: List<IServTermin>,
+    onEinstellungenClick: () -> Unit,
+    onKlausurEingabeClick: () -> Unit,
+    onKlausurClick: (Klausur) -> Unit
 ) {
     var fabMenuOffen by remember { mutableStateOf(false) }
 
@@ -89,6 +97,9 @@ fun UebersichtScreen(
                     }
                     IconButton(onClick = onNeuLadenClick) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Neu laden")
+                    }
+                    IconButton(onClick = onEinstellungenClick) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Einstellungen")
                     }
                     IconButton(onClick = onOrdnerWechselnClick) {
                         Icon(Icons.Filled.FolderOpen, contentDescription = "Ordner wechseln")
@@ -112,6 +123,12 @@ fun UebersichtScreen(
                         onClick = { fabMenuOffen = false; onHausaufgabeEingabeClick() },
                         icon = { Icon(Icons.Filled.Assignment, contentDescription = null) },
                         text = { Text("Hausaufgabe") },
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    ExtendedFloatingActionButton(
+                        onClick = { fabMenuOffen = false; onKlausurEingabeClick() },
+                        icon = { Icon(Icons.Filled.Quiz, contentDescription = null) },
+                        text = { Text("Klausur") },
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
                     ExtendedFloatingActionButton(
@@ -164,6 +181,22 @@ fun UebersichtScreen(
                 }
             }
 
+            if (iservTermine.isNotEmpty()) {
+                item { Spacer(Modifier.height(8.dp)) }
+                item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+                item { Spacer(Modifier.height(4.dp)) }
+                item {
+                    Text(
+                        "IServ-Termine",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                items(iservTermine.sortedBy { it.datum }) { iservTermin ->
+                    IServTerminKarte(iservTermin = iservTermin, heute = heute)
+                }
+            }
+
             item { Spacer(Modifier.height(8.dp)) }
             item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
             item { Spacer(Modifier.height(4.dp)) }
@@ -194,6 +227,34 @@ fun UebersichtScreen(
                         onClick = { onHausaufgabeClick(hausaufgabe) },
                         onErledigtToggle = { erledigt -> onHausaufgabeErledigtToggle(hausaufgabe, erledigt) }
                     )
+                }
+            }
+
+            item { Spacer(Modifier.height(8.dp)) }
+            item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+            item { Spacer(Modifier.height(4.dp)) }
+
+            item {
+                Text(
+                    "Klausuren",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            val kommendeKlausuren = uiState.klausuren.filter { it.datum >= heute }
+
+            if (kommendeKlausuren.isEmpty()) {
+                item {
+                    Text(
+                        "Keine anstehenden Klausuren.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            } else {
+                items(kommendeKlausuren) { klausur ->
+                    KlausurKarte(klausur = klausur, heute = heute, onClick = { onKlausurClick(klausur) })
                 }
             }
 
@@ -259,6 +320,75 @@ private fun TerminKarte(termin: Termin, heute: kotlinx.datetime.LocalDate, onCli
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
+                    )
+                }
+            }
+            Badge(containerColor = akzent, contentColor = Color.Black) {
+                Text(
+                    text = when {
+                        tageBis == 0 -> "heute"
+                        tageBis == 1 -> "morgen"
+                        else -> "in ${tageBis}T"
+                    },
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IServTerminKarte(iservTermin: IServTermin, heute: kotlinx.datetime.LocalDate) {
+    val tageBis = heute.daysUntil(iservTermin.datum)
+    val akzent = when {
+        tageBis <= 1 -> NeonMagenta
+        tageBis <= 3 -> NeonAmber
+        tageBis <= 7 -> NeonViolet
+        else -> NeonCyan
+    }
+
+    GlowCard(akzentFarbe = akzent) {
+        Column {
+            Text(iservTermin.titel, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "${iservTermin.kalenderLabel} · ${iservTermin.datum}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun KlausurKarte(klausur: Klausur, heute: kotlinx.datetime.LocalDate, onClick: () -> Unit) {
+    val tageBis = heute.daysUntil(klausur.datum)
+    val akzent = when {
+        tageBis <= 1 -> NeonMagenta
+        tageBis <= 3 -> NeonAmber
+        tageBis <= 7 -> NeonViolet
+        else -> NeonCyan
+    }
+    val verstandeneAnzahl = klausur.themenStatus.values.count { it }
+    val themenAnzahl = klausur.themenStatus.size
+
+    GlowCard(akzentFarbe = akzent, onClick = onClick) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(klausur.titel, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "${klausur.fach} · ${klausur.datum}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (themenAnzahl > 0) {
+                    Text(
+                        text = "$verstandeneAnzahl/$themenAnzahl Themen verstanden",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

@@ -20,8 +20,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import de.wunstorf.schulevault.ui.NavRoutes
+import de.wunstorf.schulevault.ui.screens.EinstellungenScreen
 import de.wunstorf.schulevault.ui.screens.FachDetailScreen
 import de.wunstorf.schulevault.ui.screens.HausaufgabeEingabeScreen
+import de.wunstorf.schulevault.ui.screens.KlausurEingabeScreen
 import de.wunstorf.schulevault.ui.screens.LernnotizEingabeScreen
 import de.wunstorf.schulevault.ui.screens.OrdnerAuswaehlenScreen
 import de.wunstorf.schulevault.ui.screens.StundenplanScreen
@@ -82,6 +84,8 @@ private fun SchuleVaultApp(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val updateInfo by viewModel.updateInfo.collectAsState()
+    val iservTermine by viewModel.iservTermine.collectAsState()
+    val iservSyncLaeuft by viewModel.iservSyncLaeuft.collectAsState()
     val navController = rememberNavController()
     val context = LocalContext.current
 
@@ -131,7 +135,50 @@ private fun SchuleVaultApp(
                 },
                 onHausaufgabeErledigtToggle = { hausaufgabe, erledigt ->
                     viewModel.hausaufgabeErledigtSetzen(hausaufgabe, erledigt)
+                },
+                iservTermine = iservTermine,
+                onEinstellungenClick = { navController.navigate(NavRoutes.EINSTELLUNGEN) },
+                onKlausurEingabeClick = { navController.navigate(NavRoutes.KLAUSUR_EINGABE) },
+                onKlausurClick = { klausur ->
+                    navController.navigate(NavRoutes.klausurBearbeiten(klausur.note.fileName))
                 }
+            )
+        }
+        composable(NavRoutes.KLAUSUR_EINGABE) {
+            KlausurEingabeScreen(
+                verfuegbareFaecher = uiState.faecher,
+                onSpeichern = { fach, titel, datum, relevanteThemen, callback ->
+                    viewModel.neueKlausurAnlegen(fach, titel, datum, relevanteThemen, callback)
+                },
+                onZurueck = { navController.popBackStack() }
+            )
+        }
+        composable(
+            route = NavRoutes.KLAUSUR_BEARBEITEN,
+            arguments = listOf(androidx.navigation.navArgument("dateiname") {
+                type = androidx.navigation.NavType.StringType
+            })
+        ) { backStackEntry ->
+            val dateiname = backStackEntry.arguments?.getString("dateiname") ?: return@composable
+            val klausur = uiState.klausuren.find { it.note.fileName == dateiname } ?: return@composable
+            KlausurEingabeScreen(
+                verfuegbareFaecher = uiState.faecher,
+                bearbeitenKlausur = klausur,
+                onSpeichern = { fach, titel, datum, relevanteThemen, callback ->
+                    viewModel.klausurAktualisieren(klausur, fach, titel, datum, relevanteThemen, callback)
+                },
+                onLoeschen = { callback -> viewModel.klausurLoeschen(klausur, callback) },
+                onZurueck = { navController.popBackStack() }
+            )
+        }
+        composable(NavRoutes.EINSTELLUNGEN) {
+            EinstellungenScreen(
+                iservTerminAnzahl = iservTermine.size,
+                iservSyncLaeuft = iservSyncLaeuft,
+                onSpeichern = { benutzername, passwort, kalenderListe ->
+                    viewModel.iservEinstellungenSpeichern(benutzername, passwort, kalenderListe)
+                },
+                onZurueck = { navController.popBackStack() }
             )
         }
         composable(NavRoutes.HAUSAUFGABE_EINGABE) {

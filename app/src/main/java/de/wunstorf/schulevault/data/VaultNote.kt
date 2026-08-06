@@ -34,6 +34,9 @@ data class VaultNote(
 
     val datum: String?
         get() = frontmatter["datum"]
+
+    val verstanden: Boolean
+        get() = frontmatter["verstanden"]?.trim()?.trim('"') == "true"
 }
 
 /** Wandelt "[a, b, c]" bzw. "a, b, c" in eine Liste einzelner, getrimmter Eintraege um. */

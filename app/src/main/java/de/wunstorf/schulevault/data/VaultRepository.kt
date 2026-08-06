@@ -367,6 +367,129 @@ class VaultRepository(private val context: Context) {
         "%02d-%02d-%04d".format(datum.dayOfMonth, datum.monthNumber, datum.year)
 
     /**
+     * Laedt alle Klausuren aus dem "Klausuren"-Ordner. Fuer jede Klausur wird
+     * je relevantem Thema berechnet, ob es "abgehakt" ist - abgeleitet aus
+     * den Lernnotizen desselben Fachs (nicht selbst gespeichert): ein Thema
+     * gilt als verstanden, sobald irgendeine Lernnotiz dieses Thema (case-
+     * insensitiv) fuehrt UND als verstanden markiert ist.
+     */
+    fun loadAlleKlausuren(rootUri: Uri): List<Klausur> {
+        return listNotesInFolder(rootUri, "Klausuren").mapNotNull { note ->
+            val datumRoh = note.datum ?: return@mapNotNull null
+            val datum = parseDatum(datumRoh) ?: return@mapNotNull null
+            val fach = note.fach ?: return@mapNotNull null
+            Klausur(
+                note = note,
+                fach = fach,
+                titel = note.title,
+                datum = datum,
+                relevanteThemen = note.themen,
+                themenStatus = klausurThemenStatus(rootUri, fach, note.themen)
+            )
+        }.sortedBy { it.datum }
+    }
+
+    private fun klausurThemenStatus(rootUri: Uri, fach: String, relevanteThemen: List<String>): Map<String, Boolean> {
+        val notizenDesFachs = listNotesInFolder(rootUri, fach)
+        return relevanteThemen.associateWith { thema ->
+            notizenDesFachs.any { notiz ->
+                notiz.verstanden && notiz.themen.any { it.equals(thema, ignoreCase = true) }
+            }
+        }
+    }
+
+    /** Legt eine neue Klausur an. Erzeugt den "Klausuren"-Ordner beim allerersten Eintrag automatisch. */
+    fun neueKlausurSpeichern(
+        rootUri: Uri,
+        fach: String,
+        titel: String,
+        datum: LocalDate,
+        relevanteThemen: List<String>
+    ): Boolean {
+        val ordner = findOrCreateFolder(rootUri, "Klausuren") ?: return false
+        val frontmatter = linkedMapOf(
+            "fach" to fach,
+            "datum" to "\"${formatiereDatum(datum)}\"",
+            "themen" to FrontmatterParser.formatList(relevanteThemen),
+            "tags" to FrontmatterParser.formatList(listOf("klausur", "schule"))
+        )
+        val inhalt = FrontmatterParser.serialize(frontmatter, "")
+        val dateiName = "${dateiNameAusTitel(titel)}.md"
+        return schreibeNeueDatei(ordner, dateiName, inhalt)
+    }
+
+    /** Ueberschreibt eine bestehende Klausur (Inhalt + optional Umbenennung bei Titeländerung), gleiches Muster wie terminAktualisieren. */
+    fun klausurAktualisieren(
+        rootUri: Uri,
+        note: VaultNote,
+        fach: String,
+        titel: String,
+        datum: LocalDate,
+        relevanteThemen: List<String>
+    ): Boolean {
+        val ordner = findFolder(rootUri, "Klausuren") ?: return false
+        var doc = ordner.findFile(note.fileName) ?: return false
+
+        val neuerDateiName = "${dateiNameAusTitel(titel)}.md"
+        if (doc.name != neuerDateiName) {
+            if (!doc.renameTo(neuerDateiName)) return false
+            doc = ordner.findFile(neuerDateiName) ?: return false
+        }
+
+        val frontmatter = linkedMapOf(
+            "fach" to fach,
+            "datum" to "\"${formatiereDatum(datum)}\"",
+            "themen" to FrontmatterParser.formatList(relevanteThemen),
+            "tags" to FrontmatterParser.formatList(listOf("klausur", "schule"))
+        )
+        val inhalt = FrontmatterParser.serialize(frontmatter, note.body)
+
+        return try {
+            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
+                OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Loescht eine Klausur unwiderruflich. */
+    fun klausurLoeschen(rootUri: Uri, note: VaultNote): Boolean {
+        val ordner = findFolder(rootUri, "Klausuren") ?: return false
+        val doc = ordner.findFile(note.fileName) ?: return false
+        return try {
+            doc.delete()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Setzt/loescht das "Verstanden"-Haekchen einer beliebigen Notiz (nicht
+     * klausurspezifisch - funktioniert fuer jede Notiz in jedem Fachordner).
+     * Bestehende Frontmatter-Felder bleiben erhalten, nur "verstanden" wird
+     * ueberschrieben.
+     */
+    fun notizVerstandenSetzen(rootUri: Uri, note: VaultNote, verstanden: Boolean): Boolean {
+        val ordner = findFolder(rootUri, note.folderPath) ?: return false
+        val doc = ordner.findFile(note.fileName) ?: return false
+
+        val neueFrontmatter = LinkedHashMap(note.frontmatter)
+        neueFrontmatter["verstanden"] = verstanden.toString()
+        val inhalt = FrontmatterParser.serialize(neueFrontmatter, note.body)
+
+        return try {
+            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
+                OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Prueft, ob die dauerhafte SAF-Berechtigung fuer den Vault-Ordner noch
      * besteht. Kann z. B. nach Umbenennen/Verschieben des Ordners oder nach
      * einem Reset der App-Berechtigungen durch das System entzogen werden.

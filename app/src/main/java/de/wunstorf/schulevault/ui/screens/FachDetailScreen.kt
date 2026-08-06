@@ -3,13 +3,17 @@ package de.wunstorf.schulevault.ui.screens
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -23,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import de.wunstorf.schulevault.data.VaultNote
 import de.wunstorf.schulevault.data.VaultRepository
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,12 +45,13 @@ fun FachDetailScreen(
     onZurueck: () -> Unit
 ) {
     val context = LocalContext.current
+    val repository = remember { VaultRepository(context) }
+    val scope = rememberCoroutineScope()
     var notizen by remember { mutableStateOf<List<VaultNote>?>(null) }
     var ausgeklappteNotizen by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(fach, vaultUri) {
         if (vaultUri != null) {
-            val repository = VaultRepository(context)
             notizen = repository.listNotesInFolder(vaultUri, fach)
         }
     }
@@ -88,13 +95,38 @@ fun FachDetailScreen(
                         }
                     }
                 ) {
-                    Text(notiz.title, style = MaterialTheme.typography.titleMedium)
-                    if (notiz.themen.isNotEmpty()) {
-                        Text(
-                            notiz.themen.joinToString(" · "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(notiz.title, style = MaterialTheme.typography.titleMedium)
+                            if (notiz.themen.isNotEmpty()) {
+                                Text(
+                                    notiz.themen.joinToString(" · "),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Checkbox(
+                                checked = notiz.verstanden,
+                                onCheckedChange = { verstanden ->
+                                    if (vaultUri != null) {
+                                        scope.launch {
+                                            repository.notizVerstandenSetzen(vaultUri, notiz, verstanden)
+                                            notizen = repository.listNotesInFolder(vaultUri, fach)
+                                        }
+                                    }
+                                }
+                            )
+                            Text(
+                                "Verstanden",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     if (istAusgeklappt && notiz.body.isNotBlank()) {
                         Text(

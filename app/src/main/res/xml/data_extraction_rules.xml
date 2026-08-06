@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Schliesst die IServ-Zugangsdaten (Benutzername/Passwort) explizit von
+     Android-Cloud-Backup und Geraete-zu-Geraete-Transfer aus - dort steht
+     ein echtes Passwort im Klartext drin, das nicht unverschluesselt in
+     einem Backup landen soll.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore/iserv_settings.preferences_pb" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/iserv_settings.preferences_pb" />
+    </device-transfer>
+</data-extraction-rules>
