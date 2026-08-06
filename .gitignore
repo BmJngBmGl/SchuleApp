@@ -1,6 +1,8 @@
 *.iml
 .gradle/
 .claude/
+*.keystore
+*.jks
 /local.properties
 .idea/
 .DS_Store

@@ -4,6 +4,14 @@
     <!-- Push-Benachrichtigungen (ab Android 13 / API 33 explizit noetig) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Fuer den Update-Check gegen die GitHub-Releases-API und den APK-Download -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Erlaubt der App, den System-Installationsdialog fuer die
+         heruntergeladene Update-APK selbst auszuloesen (Sideloading, kein
+         Play Store). Fehlt die vom Nutzer zu erteilende Freigabe, zeigt
+         Android das automatisch als eigenen Systemdialog an. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Hinweis: kein RECEIVE_BOOT_COMPLETED/SCHEDULE_EXACT_ALARM noetig -
          WorkManager persistiert eingeplante Arbeit selbststaendig ueber
          Geraete-Neustarts hinweg (eigener interner Mechanismus), und bei
@@ -29,5 +37,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Stellt die heruntergeladene Update-APK als content://-URI bereit,
+             die der System-Installationsdialog lesen darf (ab Android 7 sind
+             file://-URIs fuer Installations-Intents nicht mehr erlaubt). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

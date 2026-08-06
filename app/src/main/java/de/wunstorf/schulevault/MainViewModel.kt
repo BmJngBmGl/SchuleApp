@@ -9,6 +9,8 @@ import de.wunstorf.schulevault.data.VaultNote
 import de.wunstorf.schulevault.data.VaultPreferences
 import de.wunstorf.schulevault.data.VaultRepository
 import de.wunstorf.schulevault.notifications.NotificationScheduler
+import de.wunstorf.schulevault.update.UpdateChecker
+import de.wunstorf.schulevault.update.UpdateInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,12 +39,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _sucheErgebnisse = MutableStateFlow<List<VaultNote>>(emptyList())
     val sucheErgebnisse: StateFlow<List<VaultNote>> = _sucheErgebnisse.asStateFlow()
 
+    private val _updateInfo = MutableStateFlow<UpdateInfo?>(null)
+    val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
+
     init {
         viewModelScope.launch {
             preferences.vaultUri.collect { gespeicherteUri ->
                 val uri = gespeicherteUri?.let { Uri.parse(it) }
                 _uiState.value = _uiState.value.copy(vaultUri = uri)
                 if (uri != null) ladeVaultDaten(uri)
+            }
+        }
+        // Einmal pro App-Start kurz im Hintergrund auf ein neueres Release
+        // pruefen - schlaegt lautlos fehl (z. B. offline), stoert also nie
+        // den normalen App-Start.
+        viewModelScope.launch {
+            val neuesteVersion = UpdateChecker.neuesteVersionPruefen()
+            if (neuesteVersion != null && neuesteVersion.versionName != BuildConfig.VERSION_NAME) {
+                _updateInfo.value = neuesteVersion
             }
         }
     }
@@ -171,5 +185,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _sucheErgebnisse.value = repository.sucheAlleNotizen(uri, query)
         }
+    }
+
+    /** Blendet den Update-Dialog aus - fuer "Später" ebenso wie direkt nach dem Start des Downloads. */
+    fun updateIgnorieren() {
+        _updateInfo.value = null
     }
 }

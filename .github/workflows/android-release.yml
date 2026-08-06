@@ -1,0 +1,54 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JDK 17 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Gradle Wrapper ausfuehrbar machen
+        run: chmod +x gradlew
+
+      - name: Versionsnummern aus dem Tag ableiten
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Signing-Keystore aus Secret wiederherstellen
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/schulevault-release.keystore"
+
+      - name: Signierte Release-APK bauen
+        env:
+          SCHULEVAULT_KEYSTORE_PATH: ${{ runner.temp }}/schulevault-release.keystore
+          SCHULEVAULT_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SCHULEVAULT_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SCHULEVAULT_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -PversionName="${{ steps.version.outputs.name }}" \
+            -PversionCode="${{ steps.version.outputs.code }}"
+
+      - name: GitHub Release mit APK erzeugen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            app/build/outputs/apk/release/*.apk \
+            --title "SchuleVault ${{ github.ref_name }}" \
+            --generate-notes

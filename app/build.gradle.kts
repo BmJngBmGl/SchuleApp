@@ -14,8 +14,27 @@ android {
         // Geraete ab und erlaubt saubere Notification Channels von Anfang an.
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Ueber Gradle-Projekt-Properties injizierbar (siehe
+        // .github/workflows/android-release.yml, das pro Git-Tag eine
+        // eindeutige Version setzt) - lokale Builds ohne diese Flags
+        // bekommen einen harmlosen Dev-Default.
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = project.findProperty("versionName") as String? ?: "1.0-dev"
+    }
+
+    signingConfigs {
+        // Nur fuer signierte Release-Builds in der Release-CI gesetzt (siehe
+        // android-release.yml) - ohne diese Env-Vars bleibt "release" bewusst
+        // unsigniert nutzbar (z. B. fuer einen lokalen assembleRelease-Test).
+        val keystorePath = System.getenv("SCHULEVAULT_KEYSTORE_PATH")
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("SCHULEVAULT_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SCHULEVAULT_KEY_ALIAS")
+                keyPassword = System.getenv("SCHULEVAULT_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -25,6 +44,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
@@ -35,6 +55,9 @@ android {
 
     buildFeatures {
         compose = true
+        // Fuer BuildConfig.VERSION_NAME, das der Update-Check zur Laufzeit
+        // mit der neuesten GitHub-Release-Version vergleicht.
+        buildConfig = true
     }
 }
 

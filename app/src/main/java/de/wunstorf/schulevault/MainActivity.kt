@@ -9,9 +9,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -23,6 +27,7 @@ import de.wunstorf.schulevault.ui.screens.SucheScreen
 import de.wunstorf.schulevault.ui.screens.TerminEingabeScreen
 import de.wunstorf.schulevault.ui.screens.UebersichtScreen
 import de.wunstorf.schulevault.ui.theme.SchuleVaultTheme
+import de.wunstorf.schulevault.update.UpdateInstaller
 
 class MainActivity : ComponentActivity() {
 
@@ -74,7 +79,26 @@ private fun SchuleVaultApp(
     onOrdnerAuswaehlenGeklickt: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val updateInfo by viewModel.updateInfo.collectAsState()
     val navController = rememberNavController()
+    val context = LocalContext.current
+
+    updateInfo?.let { info ->
+        AlertDialog(
+            onDismissRequest = { viewModel.updateIgnorieren() },
+            title = { Text("Update verfügbar") },
+            text = { Text("SchuleVault ${info.versionName} ist verfügbar. Jetzt aktualisieren?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    UpdateInstaller.downloadUndInstallieren(context, info.downloadUrl)
+                    viewModel.updateIgnorieren()
+                }) { Text("Aktualisieren") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.updateIgnorieren() }) { Text("Später") }
+            }
+        )
+    }
 
     if (uiState.vaultUri == null) {
         // Kein Vault-Ordner ausgewaehlt -> Onboarding-Bildschirm statt
