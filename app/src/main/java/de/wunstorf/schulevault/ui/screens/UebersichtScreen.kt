@@ -16,12 +16,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Badge
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -44,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import de.wunstorf.schulevault.VaultUiState
+import de.wunstorf.schulevault.data.Hausaufgabe
 import de.wunstorf.schulevault.data.Termin
 import de.wunstorf.schulevault.ui.theme.NeonAmber
 import de.wunstorf.schulevault.ui.theme.NeonCyan
@@ -64,7 +68,11 @@ fun UebersichtScreen(
     onOrdnerWechselnClick: () -> Unit,
     onNeuLadenClick: () -> Unit,
     onSucheClick: () -> Unit,
-    onTerminClick: (Termin) -> Unit
+    onTerminClick: (Termin) -> Unit,
+    onStundenplanClick: () -> Unit,
+    onHausaufgabeEingabeClick: () -> Unit,
+    onHausaufgabeClick: (Hausaufgabe) -> Unit,
+    onHausaufgabeErledigtToggle: (Hausaufgabe, Boolean) -> Unit
 ) {
     var fabMenuOffen by remember { mutableStateOf(false) }
 
@@ -73,6 +81,9 @@ fun UebersichtScreen(
             TopAppBar(
                 title = { Text("SchuleVault", style = MaterialTheme.typography.titleLarge) },
                 actions = {
+                    IconButton(onClick = onStundenplanClick) {
+                        Icon(Icons.Filled.CalendarViewWeek, contentDescription = "Stundenplan")
+                    }
                     IconButton(onClick = onSucheClick) {
                         Icon(Icons.Filled.Search, contentDescription = "Suche")
                     }
@@ -95,6 +106,12 @@ fun UebersichtScreen(
                         onClick = { fabMenuOffen = false; onLernnotizEingabeClick() },
                         icon = { Icon(Icons.Filled.Book, contentDescription = null) },
                         text = { Text("Lernnotiz") },
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    ExtendedFloatingActionButton(
+                        onClick = { fabMenuOffen = false; onHausaufgabeEingabeClick() },
+                        icon = { Icon(Icons.Filled.Assignment, contentDescription = null) },
+                        text = { Text("Hausaufgabe") },
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
                     ExtendedFloatingActionButton(
@@ -144,6 +161,39 @@ fun UebersichtScreen(
             } else {
                 items(kommendeTermine) { termin ->
                     TerminKarte(termin = termin, heute = heute, onClick = { onTerminClick(termin) })
+                }
+            }
+
+            item { Spacer(Modifier.height(8.dp)) }
+            item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+            item { Spacer(Modifier.height(4.dp)) }
+
+            item {
+                Text(
+                    "Hausaufgaben",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            val offeneHausaufgaben = uiState.hausaufgaben.filter { !it.erledigt }
+
+            if (offeneHausaufgaben.isEmpty()) {
+                item {
+                    Text(
+                        "Keine offenen Hausaufgaben.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            } else {
+                items(offeneHausaufgaben) { hausaufgabe ->
+                    HausaufgabeKarte(
+                        hausaufgabe = hausaufgabe,
+                        heute = heute,
+                        onClick = { onHausaufgabeClick(hausaufgabe) },
+                        onErledigtToggle = { erledigt -> onHausaufgabeErledigtToggle(hausaufgabe, erledigt) }
+                    )
                 }
             }
 
@@ -220,6 +270,38 @@ private fun TerminKarte(termin: Termin, heute: kotlinx.datetime.LocalDate, onCli
                         else -> "in ${tageBis}T"
                     },
                     modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HausaufgabeKarte(
+    hausaufgabe: Hausaufgabe,
+    heute: kotlinx.datetime.LocalDate,
+    onClick: () -> Unit,
+    onErledigtToggle: (Boolean) -> Unit
+) {
+    val tageBis = heute.daysUntil(hausaufgabe.faelligAm)
+    val akzent = when {
+        tageBis <= 1 -> NeonMagenta
+        tageBis <= 3 -> NeonAmber
+        else -> NeonCyan
+    }
+
+    GlowCard(akzentFarbe = akzent, onClick = onClick) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(checked = hausaufgabe.erledigt, onCheckedChange = onErledigtToggle)
+            Column(modifier = Modifier.padding(start = 4.dp)) {
+                Text(hausaufgabe.titel, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "${hausaufgabe.fach} · fällig ${hausaufgabe.faelligAm}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import de.wunstorf.schulevault.data.Hausaufgabe
 import de.wunstorf.schulevault.data.Termin
 import de.wunstorf.schulevault.data.VaultNote
 import de.wunstorf.schulevault.data.VaultPreferences
@@ -24,6 +25,7 @@ data class VaultUiState(
     val vaultUri: Uri? = null,
     val ladeLaeuft: Boolean = false,
     val termine: List<Termin> = emptyList(),
+    val hausaufgaben: List<Hausaufgabe> = emptyList(),
     val faecher: List<String> = emptyList(),
     val fehlermeldung: String? = null
 )
@@ -87,12 +89,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(ladeLaeuft = true, fehlermeldung = null)
             try {
                 val termine = repository.loadAlleTermine(uri)
+                val hausaufgaben = repository.loadAlleHausaufgaben(uri)
                 val faecher = repository.listTopLevelFolders(uri)
                     .mapNotNull { it.name }
-                    .filter { it != "Termine" } // Termine hat eigenen Bereich in der UI
+                    .filter { it != "Termine" && it != "Hausaufgaben" } // beide haben eigene Bereiche in der UI
                 _uiState.value = _uiState.value.copy(
                     ladeLaeuft = false,
                     termine = termine,
+                    hausaufgaben = hausaufgaben,
                     faecher = faecher
                 )
                 // Fuer alle geladenen (und noch in der Zukunft liegenden)
@@ -190,5 +194,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Blendet den Update-Dialog aus - fuer "Später" ebenso wie direkt nach dem Start des Downloads. */
     fun updateIgnorieren() {
         _updateInfo.value = null
+    }
+
+    fun neueHausaufgabeAnlegen(
+        fach: String,
+        titel: String,
+        faelligAm: LocalDate,
+        notizText: String,
+        onFertig: (Boolean) -> Unit
+    ) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        viewModelScope.launch {
+            val erfolgreich = repository.neueHausaufgabeSpeichern(uri, fach, titel, faelligAm, notizText)
+            if (erfolgreich) ladeVaultDaten(uri)
+            onFertig(erfolgreich)
+        }
+    }
+
+    /** Schneller Erledigt-Toggle direkt aus der Übersichtsliste, ohne den Eingabe-Screen zu öffnen. */
+    fun hausaufgabeErledigtSetzen(hausaufgabe: Hausaufgabe, erledigt: Boolean) {
+        val uri = _uiState.value.vaultUri ?: return
+        viewModelScope.launch {
+            repository.hausaufgabeAktualisieren(
+                uri, hausaufgabe.note, hausaufgabe.fach, hausaufgabe.titel,
+                hausaufgabe.faelligAm, erledigt, hausaufgabe.notizText
+            )
+            ladeVaultDaten(uri)
+        }
+    }
+
+    fun hausaufgabeAktualisieren(
+        hausaufgabe: Hausaufgabe,
+        fach: String,
+        titel: String,
+        faelligAm: LocalDate,
+        notizText: String,
+        onFertig: (Boolean) -> Unit
+    ) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        viewModelScope.launch {
+            val erfolgreich = repository.hausaufgabeAktualisieren(
+                uri, hausaufgabe.note, fach, titel, faelligAm, hausaufgabe.erledigt, notizText
+            )
+            if (erfolgreich) ladeVaultDaten(uri)
+            onFertig(erfolgreich)
+        }
+    }
+
+    fun hausaufgabeLoeschen(hausaufgabe: Hausaufgabe, onFertig: (Boolean) -> Unit) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        viewModelScope.launch {
+            val erfolgreich = repository.hausaufgabeLoeschen(uri, hausaufgabe.note)
+            if (erfolgreich) ladeVaultDaten(uri)
+            onFertig(erfolgreich)
+        }
     }
 }

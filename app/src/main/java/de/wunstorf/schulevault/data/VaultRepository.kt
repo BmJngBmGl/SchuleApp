@@ -33,6 +33,12 @@ class VaultRepository(private val context: Context) {
         return root.findFile(folderName)?.takeIf { it.isDirectory }
     }
 
+    /** Wie findFolder, legt den Ordner aber an, falls er noch nicht existiert (z. B. "Hausaufgaben" beim allerersten Eintrag). */
+    private fun findOrCreateFolder(rootUri: Uri, folderName: String): DocumentFile? {
+        val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
+        return root.findFile(folderName)?.takeIf { it.isDirectory } ?: root.createDirectory(folderName)
+    }
+
     /** Liest alle .md-Dateien eines Unterordners und parst sie zu VaultNote. */
     fun listNotesInFolder(rootUri: Uri, folderName: String): List<VaultNote> {
         val folder = findFolder(rootUri, folderName) ?: return emptyList()
@@ -228,6 +234,137 @@ class VaultRepository(private val context: Context) {
             }
             .sortedBy { it.title }
     }
+
+    /** Liest Organisation/Stundenplan.md und liefert je Wochentag die Faecher in Stundenreihenfolge. */
+    fun loadStundenplan(rootUri: Uri): Map<Wochentag, List<String>> {
+        val ordner = findFolder(rootUri, "Organisation") ?: return emptyMap()
+        val doc = ordner.findFile("Stundenplan.md") ?: return emptyMap()
+        val raw = readTextContent(doc.uri) ?: return emptyMap()
+        val (_, body) = FrontmatterParser.parse(raw)
+        return StundenplanParser.parse(body)
+    }
+
+    /**
+     * Liefert die Themen der zuletzt bearbeiteten Notiz eines Fachs (nach
+     * "datum" sortiert). Notizen ohne gueltiges Datum (z. B. aeltere
+     * Archiv-Notizen ohne datum-Feld) werden dabei uebersprungen, da sie
+     * sich zeitlich nicht einordnen lassen.
+     */
+    fun letztesThemaFuerFach(rootUri: Uri, fach: String): String? {
+        val neueste = listNotesInFolder(rootUri, fach)
+            .mapNotNull { note -> note.datum?.let { parseLernnotizDatum(it) }?.let { it to note } }
+            .maxByOrNull { (datum, _) -> datum }
+            ?.second
+            ?: return null
+        return neueste.themen.takeIf { it.isNotEmpty() }?.joinToString(", ")
+    }
+
+    /** Erwartetes Format bei Lernnotizen laut Vault-Konvention: "JJJJ-MM-TT" (anders als bei Terminen). */
+    private fun parseLernnotizDatum(raw: String): LocalDate? {
+        val bereinigt = raw.trim().trim('"')
+        val teile = bereinigt.split("-", ".")
+        if (teile.size != 3) return null
+        return try {
+            val jahr = teile[0].toInt()
+            val monat = teile[1].toInt()
+            val tag = teile[2].toInt()
+            LocalDate(jahr, monat, tag)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Laedt alle Hausaufgaben aus dem "Hausaufgaben"-Ordner. Bewusst getrennt
+     * von Terminen: hier zaehlt kein Countdown mit Erinnerungen, sondern nur
+     * ein erledigt/offen-Status. Notizen ohne gueltiges "faelligAm"-Feld
+     * werden uebersprungen (gleiches Prinzip wie bei loadAlleTermine).
+     */
+    fun loadAlleHausaufgaben(rootUri: Uri): List<Hausaufgabe> {
+        return listNotesInFolder(rootUri, "Hausaufgaben").mapNotNull { note ->
+            val faelligRoh = note.frontmatter["faelligAm"] ?: return@mapNotNull null
+            val faelligAm = parseDatum(faelligRoh) ?: return@mapNotNull null
+            Hausaufgabe(
+                note = note,
+                fach = note.fach ?: "",
+                titel = note.title,
+                faelligAm = faelligAm,
+                erledigt = note.frontmatter["erledigt"]?.trim()?.trim('"') == "true",
+                notizText = note.body.trim()
+            )
+        }.sortedBy { it.faelligAm }
+    }
+
+    /** Legt eine neue Hausaufgabe an. Erzeugt den "Hausaufgaben"-Ordner beim allerersten Eintrag automatisch. */
+    fun neueHausaufgabeSpeichern(
+        rootUri: Uri,
+        fach: String,
+        titel: String,
+        faelligAm: LocalDate,
+        notizText: String
+    ): Boolean {
+        val ordner = findOrCreateFolder(rootUri, "Hausaufgaben") ?: return false
+        val frontmatter = linkedMapOf(
+            "fach" to fach,
+            "faelligAm" to "\"${formatiereDatum(faelligAm)}\"",
+            "erledigt" to "false",
+            "tags" to FrontmatterParser.formatList(listOf("hausaufgabe"))
+        )
+        val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
+        val dateiName = "${dateiNameAusTitel(titel)}.md"
+        return schreibeNeueDatei(ordner, dateiName, inhalt)
+    }
+
+    /** Ueberschreibt eine bestehende Hausaufgabe (Inhalt + optional Umbenennung bei Titeländerung), gleiches Muster wie terminAktualisieren. */
+    fun hausaufgabeAktualisieren(
+        rootUri: Uri,
+        note: VaultNote,
+        fach: String,
+        titel: String,
+        faelligAm: LocalDate,
+        erledigt: Boolean,
+        notizText: String
+    ): Boolean {
+        val ordner = findFolder(rootUri, "Hausaufgaben") ?: return false
+        var doc = ordner.findFile(note.fileName) ?: return false
+
+        val neuerDateiName = "${dateiNameAusTitel(titel)}.md"
+        if (doc.name != neuerDateiName) {
+            if (!doc.renameTo(neuerDateiName)) return false
+            doc = ordner.findFile(neuerDateiName) ?: return false
+        }
+
+        val frontmatter = linkedMapOf(
+            "fach" to fach,
+            "faelligAm" to "\"${formatiereDatum(faelligAm)}\"",
+            "erledigt" to erledigt.toString(),
+            "tags" to FrontmatterParser.formatList(listOf("hausaufgabe"))
+        )
+        val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
+
+        return try {
+            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
+                OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Loescht eine Hausaufgabe unwiderruflich. */
+    fun hausaufgabeLoeschen(rootUri: Uri, note: VaultNote): Boolean {
+        val ordner = findFolder(rootUri, "Hausaufgaben") ?: return false
+        val doc = ordner.findFile(note.fileName) ?: return false
+        return try {
+            doc.delete()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun formatiereDatum(datum: LocalDate): String =
+        "%02d-%02d-%04d".format(datum.dayOfMonth, datum.monthNumber, datum.year)
 
     /**
      * Prueft, ob die dauerhafte SAF-Berechtigung fuer den Vault-Ordner noch

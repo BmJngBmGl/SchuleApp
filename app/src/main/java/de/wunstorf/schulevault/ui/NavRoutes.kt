@@ -8,7 +8,11 @@ object NavRoutes {
     const val FACH_DETAIL = "fach_detail/{fach}"
     const val TERMIN_BEARBEITEN = "termin_bearbeiten/{dateiname}"
     const val SUCHE = "suche"
+    const val STUNDENPLAN = "stundenplan"
+    const val HAUSAUFGABE_EINGABE = "hausaufgabe_eingabe"
+    const val HAUSAUFGABE_BEARBEITEN = "hausaufgabe_bearbeiten/{dateiname}"
 
     fun fachDetail(fach: String) = "fach_detail/$fach"
     fun terminBearbeiten(dateiname: String) = "termin_bearbeiten/${android.net.Uri.encode(dateiname)}"
+    fun hausaufgabeBearbeiten(dateiname: String) = "hausaufgabe_bearbeiten/${android.net.Uri.encode(dateiname)}"
 }

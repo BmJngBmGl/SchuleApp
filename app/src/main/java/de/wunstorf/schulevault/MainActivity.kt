@@ -21,8 +21,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import de.wunstorf.schulevault.ui.NavRoutes
 import de.wunstorf.schulevault.ui.screens.FachDetailScreen
+import de.wunstorf.schulevault.ui.screens.HausaufgabeEingabeScreen
 import de.wunstorf.schulevault.ui.screens.LernnotizEingabeScreen
 import de.wunstorf.schulevault.ui.screens.OrdnerAuswaehlenScreen
+import de.wunstorf.schulevault.ui.screens.StundenplanScreen
 import de.wunstorf.schulevault.ui.screens.SucheScreen
 import de.wunstorf.schulevault.ui.screens.TerminEingabeScreen
 import de.wunstorf.schulevault.ui.screens.UebersichtScreen
@@ -121,7 +123,48 @@ private fun SchuleVaultApp(
                 onOrdnerWechselnClick = onOrdnerAuswaehlenGeklickt,
                 onNeuLadenClick = { viewModel.ordnerNeuLaden() },
                 onSucheClick = { navController.navigate(NavRoutes.SUCHE) },
-                onTerminClick = { termin -> navController.navigate(NavRoutes.terminBearbeiten(termin.note.fileName)) }
+                onTerminClick = { termin -> navController.navigate(NavRoutes.terminBearbeiten(termin.note.fileName)) },
+                onStundenplanClick = { navController.navigate(NavRoutes.STUNDENPLAN) },
+                onHausaufgabeEingabeClick = { navController.navigate(NavRoutes.HAUSAUFGABE_EINGABE) },
+                onHausaufgabeClick = { hausaufgabe ->
+                    navController.navigate(NavRoutes.hausaufgabeBearbeiten(hausaufgabe.note.fileName))
+                },
+                onHausaufgabeErledigtToggle = { hausaufgabe, erledigt ->
+                    viewModel.hausaufgabeErledigtSetzen(hausaufgabe, erledigt)
+                }
+            )
+        }
+        composable(NavRoutes.HAUSAUFGABE_EINGABE) {
+            HausaufgabeEingabeScreen(
+                verfuegbareFaecher = uiState.faecher,
+                onSpeichern = { fach, titel, faelligAm, text, callback ->
+                    viewModel.neueHausaufgabeAnlegen(fach, titel, faelligAm, text, callback)
+                },
+                onZurueck = { navController.popBackStack() }
+            )
+        }
+        composable(
+            route = NavRoutes.HAUSAUFGABE_BEARBEITEN,
+            arguments = listOf(androidx.navigation.navArgument("dateiname") {
+                type = androidx.navigation.NavType.StringType
+            })
+        ) { backStackEntry ->
+            val dateiname = backStackEntry.arguments?.getString("dateiname") ?: return@composable
+            val hausaufgabe = uiState.hausaufgaben.find { it.note.fileName == dateiname } ?: return@composable
+            HausaufgabeEingabeScreen(
+                verfuegbareFaecher = uiState.faecher,
+                bearbeitenHausaufgabe = hausaufgabe,
+                onSpeichern = { fach, titel, faelligAm, text, callback ->
+                    viewModel.hausaufgabeAktualisieren(hausaufgabe, fach, titel, faelligAm, text, callback)
+                },
+                onLoeschen = { callback -> viewModel.hausaufgabeLoeschen(hausaufgabe, callback) },
+                onZurueck = { navController.popBackStack() }
+            )
+        }
+        composable(NavRoutes.STUNDENPLAN) {
+            StundenplanScreen(
+                vaultUri = uiState.vaultUri,
+                onZurueck = { navController.popBackStack() }
             )
         }
         composable(NavRoutes.TERMIN_EINGABE) {
