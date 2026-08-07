@@ -85,6 +85,7 @@ fun UebersichtScreen(
 ) {
     var fabMenuOffen by remember { mutableStateOf(false) }
     var termineAusgeklappt by remember { mutableStateOf(false) }
+    var iservTermineAusgeklappt by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -194,7 +195,17 @@ fun UebersichtScreen(
                 }
             }
 
-            if (iservTermine.isNotEmpty()) {
+            // Aeltere ICS-Eintraege (viele Feeds enthalten auch vergangene
+            // Ereignisse) werden nach 2 Wochen komplett ausgeblendet - auch
+            // unter "Alle anzeigen", da sie schlicht zu alt sind, um noch
+            // relevant zu sein.
+            val relevanteIservTermine = iservTermine
+                .filter { heute.daysUntil(it.datum) >= -14 }
+                .sortedBy { it.datum }
+            val anzuzeigendeIservTermine =
+                if (iservTermineAusgeklappt) relevanteIservTermine else relevanteIservTermine.take(2)
+
+            if (relevanteIservTermine.isNotEmpty()) {
                 item { Spacer(Modifier.height(8.dp)) }
                 item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
                 item { Spacer(Modifier.height(4.dp)) }
@@ -205,8 +216,18 @@ fun UebersichtScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
-                items(iservTermine.sortedBy { it.datum }) { iservTermin ->
+                items(anzuzeigendeIservTermine) { iservTermin ->
                     IServTerminKarte(iservTermin = iservTermin, heute = heute)
+                }
+                if (relevanteIservTermine.size > 2) {
+                    item {
+                        TextButton(onClick = { iservTermineAusgeklappt = !iservTermineAusgeklappt }) {
+                            Text(
+                                if (iservTermineAusgeklappt) "Weniger anzeigen"
+                                else "Alle anzeigen (${relevanteIservTermine.size})"
+                            )
+                        }
+                    }
                 }
             }
 
