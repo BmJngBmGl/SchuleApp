@@ -35,11 +35,12 @@ echtem Git-Zugriff) zu Claude Code.
   vollwertiger YAML-Parser, da das bestehende Vault-Frontmatter nur simple
   `schlüssel: wert`-Zeilen nutzt.
 - **Schreibformat für neue Dateien** orientiert sich exakt an der bestehenden
-  Vault-Konvention des Nutzers:
-  - Termine → `Termine/<Titel>.md`, Frontmatter `datum: "TT-MM-JJJJ"`,
-    `tags: [termin, schule?]`
-  - Lernnotizen → `<Fach>/JJJJ-MM-TT_<Titel>.md`, Frontmatter
-    `fach`/`datum`/`themen`/`tags`
+  Vault-Konvention des Nutzers. Die verbindliche Referenz dafür liegt NICHT
+  hier, sondern direkt im Vault selbst: `Organisation/Vault-Formatierung.md`
+  dokumentiert das exakte Frontmatter für Termine/Lernnotizen/Hausaufgaben/
+  Klausuren (inkl. der unterschiedlichen Datumsformate `TT-MM-JJJJ` vs.
+  `JJJJ-MM-TT`). Bei Änderungen am Schreibformat in `VaultRepository.kt`
+  IMMER auch diese Vault-Datei aktualisieren, damit beide synchron bleiben.
 - **Erinnerungen** über WorkManager (`notifications/`), nicht AlarmManager -
   kein `SCHEDULE_EXACT_ALARM` nötig, WorkManager übersteht Reboots von sich
   aus. Pro Termin werden bis zu 3 `OneTimeWorkRequest`s mit `initialDelay`
