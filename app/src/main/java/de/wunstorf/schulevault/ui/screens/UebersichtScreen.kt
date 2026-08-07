@@ -37,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -83,6 +84,7 @@ fun UebersichtScreen(
     onKlausurClick: (Klausur) -> Unit
 ) {
     var fabMenuOffen by remember { mutableStateOf(false) }
+    var termineAusgeklappt by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -166,6 +168,7 @@ fun UebersichtScreen(
 
             val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
             val kommendeTermine = uiState.termine.filter { it.datum >= heute }
+            val anzuzeigendeTermine = if (termineAusgeklappt) kommendeTermine else kommendeTermine.take(2)
 
             if (kommendeTermine.isEmpty()) {
                 item {
@@ -176,8 +179,18 @@ fun UebersichtScreen(
                     )
                 }
             } else {
-                items(kommendeTermine) { termin ->
+                items(anzuzeigendeTermine) { termin ->
                     TerminKarte(termin = termin, heute = heute, onClick = { onTerminClick(termin) })
+                }
+                if (kommendeTermine.size > 2) {
+                    item {
+                        TextButton(onClick = { termineAusgeklappt = !termineAusgeklappt }) {
+                            Text(
+                                if (termineAusgeklappt) "Weniger anzeigen"
+                                else "Alle anzeigen (${kommendeTermine.size})"
+                            )
+                        }
+                    }
                 }
             }
 
