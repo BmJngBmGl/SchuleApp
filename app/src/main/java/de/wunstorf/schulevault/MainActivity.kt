@@ -9,16 +9,20 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.launch
 import de.wunstorf.schulevault.ui.NavRoutes
 import de.wunstorf.schulevault.ui.screens.EinstellungenScreen
 import de.wunstorf.schulevault.ui.screens.FachDetailScreen
@@ -119,30 +123,45 @@ private fun SchuleVaultApp(
 
     NavHost(navController = navController, startDestination = NavRoutes.UEBERSICHT) {
         composable(NavRoutes.UEBERSICHT) {
-            UebersichtScreen(
-                uiState = uiState,
-                onTerminEingabeClick = { navController.navigate(NavRoutes.TERMIN_EINGABE) },
-                onLernnotizEingabeClick = { navController.navigate(NavRoutes.LERNNOTIZ_EINGABE) },
-                onFachClick = { fach -> navController.navigate(NavRoutes.fachDetail(fach)) },
-                onOrdnerWechselnClick = onOrdnerAuswaehlenGeklickt,
-                onNeuLadenClick = { viewModel.ordnerNeuLaden() },
-                onSucheClick = { navController.navigate(NavRoutes.SUCHE) },
-                onTerminClick = { termin -> navController.navigate(NavRoutes.terminBearbeiten(termin.note.fileName)) },
-                onStundenplanClick = { navController.navigate(NavRoutes.STUNDENPLAN) },
-                onHausaufgabeEingabeClick = { navController.navigate(NavRoutes.HAUSAUFGABE_EINGABE) },
-                onHausaufgabeClick = { hausaufgabe ->
-                    navController.navigate(NavRoutes.hausaufgabeBearbeiten(hausaufgabe.note.fileName))
-                },
-                onHausaufgabeErledigtToggle = { hausaufgabe, erledigt ->
-                    viewModel.hausaufgabeErledigtSetzen(hausaufgabe, erledigt)
-                },
-                iservTermine = iservTermine,
-                onEinstellungenClick = { navController.navigate(NavRoutes.EINSTELLUNGEN) },
-                onKlausurEingabeClick = { navController.navigate(NavRoutes.KLAUSUR_EINGABE) },
-                onKlausurClick = { klausur ->
-                    navController.navigate(NavRoutes.klausurBearbeiten(klausur.note.fileName))
+            // Uebersicht + Stundenplan als zwei Seiten eines Pagers statt
+            // eigener Nav-Route: von rechts nach links wischen zeigt den
+            // Stundenplan, das Kalender-Icon oben springt alternativ dorthin.
+            val pagerState = rememberPagerState(pageCount = { 2 })
+            val pagerScope = rememberCoroutineScope()
+
+            HorizontalPager(state = pagerState) { seite ->
+                if (seite == 0) {
+                    UebersichtScreen(
+                        uiState = uiState,
+                        onTerminEingabeClick = { navController.navigate(NavRoutes.TERMIN_EINGABE) },
+                        onLernnotizEingabeClick = { navController.navigate(NavRoutes.LERNNOTIZ_EINGABE) },
+                        onFachClick = { fach -> navController.navigate(NavRoutes.fachDetail(fach)) },
+                        onOrdnerWechselnClick = onOrdnerAuswaehlenGeklickt,
+                        onNeuLadenClick = { viewModel.ordnerNeuLaden() },
+                        onSucheClick = { navController.navigate(NavRoutes.SUCHE) },
+                        onTerminClick = { termin -> navController.navigate(NavRoutes.terminBearbeiten(termin.note.fileName)) },
+                        onStundenplanClick = { pagerScope.launch { pagerState.animateScrollToPage(1) } },
+                        onHausaufgabeEingabeClick = { navController.navigate(NavRoutes.HAUSAUFGABE_EINGABE) },
+                        onHausaufgabeClick = { hausaufgabe ->
+                            navController.navigate(NavRoutes.hausaufgabeBearbeiten(hausaufgabe.note.fileName))
+                        },
+                        onHausaufgabeErledigtToggle = { hausaufgabe, erledigt ->
+                            viewModel.hausaufgabeErledigtSetzen(hausaufgabe, erledigt)
+                        },
+                        iservTermine = iservTermine,
+                        onEinstellungenClick = { navController.navigate(NavRoutes.EINSTELLUNGEN) },
+                        onKlausurEingabeClick = { navController.navigate(NavRoutes.KLAUSUR_EINGABE) },
+                        onKlausurClick = { klausur ->
+                            navController.navigate(NavRoutes.klausurBearbeiten(klausur.note.fileName))
+                        }
+                    )
+                } else {
+                    StundenplanScreen(
+                        vaultUri = uiState.vaultUri,
+                        onZurueck = { pagerScope.launch { pagerState.animateScrollToPage(0) } }
+                    )
                 }
-            )
+            }
         }
         composable(NavRoutes.KLAUSUR_EINGABE) {
             KlausurEingabeScreen(
@@ -205,12 +224,6 @@ private fun SchuleVaultApp(
                     viewModel.hausaufgabeAktualisieren(hausaufgabe, fach, titel, faelligAm, text, callback)
                 },
                 onLoeschen = { callback -> viewModel.hausaufgabeLoeschen(hausaufgabe, callback) },
-                onZurueck = { navController.popBackStack() }
-            )
-        }
-        composable(NavRoutes.STUNDENPLAN) {
-            StundenplanScreen(
-                vaultUri = uiState.vaultUri,
                 onZurueck = { navController.popBackStack() }
             )
         }

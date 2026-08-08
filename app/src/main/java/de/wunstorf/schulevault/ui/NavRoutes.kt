@@ -8,7 +8,6 @@ object NavRoutes {
     const val FACH_DETAIL = "fach_detail/{fach}"
     const val TERMIN_BEARBEITEN = "termin_bearbeiten/{dateiname}"
     const val SUCHE = "suche"
-    const val STUNDENPLAN = "stundenplan"
     const val HAUSAUFGABE_EINGABE = "hausaufgabe_eingabe"
     const val HAUSAUFGABE_BEARBEITEN = "hausaufgabe_bearbeiten/{dateiname}"
     const val EINSTELLUNGEN = "einstellungen"

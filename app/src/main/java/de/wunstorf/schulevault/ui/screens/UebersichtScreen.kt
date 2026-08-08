@@ -30,6 +30,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -154,11 +155,36 @@ fun UebersichtScreen(
             return@Scaffold
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
+        val kommendeTermine = uiState.termine.filter { it.datum >= heute }
+        val anzuzeigendeTermine = if (termineAusgeklappt) kommendeTermine else kommendeTermine.take(2)
+
+        // Aeltere ICS-Eintraege (viele Feeds enthalten auch vergangene
+        // Ereignisse) werden nach 2 Wochen komplett ausgeblendet - auch
+        // unter "Alle anzeigen", da sie schlicht zu alt sind, um noch
+        // relevant zu sein.
+        val relevanteIservTermine = iservTermine
+            .filter { heute.daysUntil(it.datum) >= -14 }
+            .sortedBy { it.datum }
+        val anzuzeigendeIservTermine =
+            if (iservTermineAusgeklappt) relevanteIservTermine else relevanteIservTermine.take(2)
+
+        // Beim Ausklappen wandert der Einklappen-Knopf sonst ans Ende der
+        // (potenziell langen) Liste - stattdessen als schwebender Button
+        // unten fixiert, damit man nicht erst dorthin scrollen muss.
+        val zeigeSchwebendeButtons = termineAusgeklappt || iservTermineAusgeklappt
+
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 16.dp,
+                    bottom = if (zeigeSchwebendeButtons) 88.dp else 16.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             item {
                 Text(
                     "Kommende Termine",
@@ -166,10 +192,6 @@ fun UebersichtScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
             }
-
-            val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
-            val kommendeTermine = uiState.termine.filter { it.datum >= heute }
-            val anzuzeigendeTermine = if (termineAusgeklappt) kommendeTermine else kommendeTermine.take(2)
 
             if (kommendeTermine.isEmpty()) {
                 item {
@@ -183,27 +205,14 @@ fun UebersichtScreen(
                 items(anzuzeigendeTermine) { termin ->
                     TerminKarte(termin = termin, heute = heute, onClick = { onTerminClick(termin) })
                 }
-                if (kommendeTermine.size > 2) {
+                if (!termineAusgeklappt && kommendeTermine.size > 2) {
                     item {
-                        TextButton(onClick = { termineAusgeklappt = !termineAusgeklappt }) {
-                            Text(
-                                if (termineAusgeklappt) "Weniger anzeigen"
-                                else "Alle anzeigen (${kommendeTermine.size})"
-                            )
+                        TextButton(onClick = { termineAusgeklappt = true }) {
+                            Text("Alle anzeigen (${kommendeTermine.size})")
                         }
                     }
                 }
             }
-
-            // Aeltere ICS-Eintraege (viele Feeds enthalten auch vergangene
-            // Ereignisse) werden nach 2 Wochen komplett ausgeblendet - auch
-            // unter "Alle anzeigen", da sie schlicht zu alt sind, um noch
-            // relevant zu sein.
-            val relevanteIservTermine = iservTermine
-                .filter { heute.daysUntil(it.datum) >= -14 }
-                .sortedBy { it.datum }
-            val anzuzeigendeIservTermine =
-                if (iservTermineAusgeklappt) relevanteIservTermine else relevanteIservTermine.take(2)
 
             if (relevanteIservTermine.isNotEmpty()) {
                 item { Spacer(Modifier.height(8.dp)) }
@@ -219,13 +228,10 @@ fun UebersichtScreen(
                 items(anzuzeigendeIservTermine) { iservTermin ->
                     IServTerminKarte(iservTermin = iservTermin, heute = heute)
                 }
-                if (relevanteIservTermine.size > 2) {
+                if (!iservTermineAusgeklappt && relevanteIservTermine.size > 2) {
                     item {
-                        TextButton(onClick = { iservTermineAusgeklappt = !iservTermineAusgeklappt }) {
-                            Text(
-                                if (iservTermineAusgeklappt) "Weniger anzeigen"
-                                else "Alle anzeigen (${relevanteIservTermine.size})"
-                            )
+                        TextButton(onClick = { iservTermineAusgeklappt = true }) {
+                            Text("Alle anzeigen (${relevanteIservTermine.size})")
                         }
                     }
                 }
@@ -319,6 +325,25 @@ fun UebersichtScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(top = 12.dp)
                     )
+                }
+            }
+            }
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (termineAusgeklappt) {
+                    FilledTonalButton(onClick = { termineAusgeklappt = false }) {
+                        Text("Termine einklappen")
+                    }
+                }
+                if (iservTermineAusgeklappt) {
+                    FilledTonalButton(onClick = { iservTermineAusgeklappt = false }) {
+                        Text("IServ-Termine einklappen")
+                    }
                 }
             }
         }
