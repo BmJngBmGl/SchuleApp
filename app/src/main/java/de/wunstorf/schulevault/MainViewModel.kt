@@ -19,6 +19,7 @@ import de.wunstorf.schulevault.notifications.NotificationScheduler
 import de.wunstorf.schulevault.update.UpdateChecker
 import de.wunstorf.schulevault.update.UpdateInfo
 import de.wunstorf.schulevault.webuntis.WebUntisClient
+import de.wunstorf.schulevault.webuntis.WebUntisErgebnis
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -351,16 +352,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         schule: String,
         benutzername: String,
         passwort: String,
-        onFertig: (Boolean) -> Unit
+        onFertig: (erfolgreich: Boolean, meldung: String?) -> Unit
     ) {
-        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        val uri = _uiState.value.vaultUri ?: return onFertig(false, null)
         viewModelScope.launch {
             webUntisPreferences.speichern(server, schule, benutzername, passwort)
             _webUntisSyncLaeuft.value = true
-            val plan = WebUntisClient.synchronisiereStundenplan(server, schule, benutzername, passwort)
-            val erfolgreich = plan != null && repository.speichereStundenplan(uri, plan)
+            when (val ergebnis = WebUntisClient.synchronisiereStundenplan(server, schule, benutzername, passwort)) {
+                is WebUntisErgebnis.Erfolg -> {
+                    val gespeichert = repository.speichereStundenplan(uri, ergebnis.plan)
+                    onFertig(
+                        gespeichert,
+                        if (gespeichert) null else "Stundenplan geladen, aber Speichern im Vault fehlgeschlagen."
+                    )
+                }
+                is WebUntisErgebnis.Fehler -> onFertig(false, ergebnis.meldung)
+            }
             _webUntisSyncLaeuft.value = false
-            onFertig(erfolgreich)
         }
     }
 }

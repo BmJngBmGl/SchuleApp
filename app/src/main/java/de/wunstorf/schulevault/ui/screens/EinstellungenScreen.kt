@@ -49,7 +49,7 @@ fun EinstellungenScreen(
         schule: String,
         benutzername: String,
         passwort: String,
-        callback: (Boolean) -> Unit
+        callback: (erfolgreich: Boolean, meldung: String?) -> Unit
     ) -> Unit,
     onZurueck: () -> Unit
 ) {
@@ -64,6 +64,7 @@ fun EinstellungenScreen(
     var webUntisBenutzername by remember { mutableStateOf("") }
     var webUntisPasswort by remember { mutableStateOf("") }
     var webUntisStatus by remember { mutableStateOf<String?>(null) }
+    var webUntisStatusIstFehler by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val preferences = IServPreferences(context)
@@ -223,17 +224,25 @@ fun EinstellungenScreen(
             )
 
             webUntisStatus?.let {
-                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    it,
+                    color = if (webUntisStatusIstFehler) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
             }
 
             Button(
                 onClick = {
                     webUntisStatus = null
-                    onWebUntisSync(webUntisServer, webUntisSchule, webUntisBenutzername, webUntisPasswort) { erfolgreich ->
-                        webUntisStatus = if (erfolgreich) {
+                    onWebUntisSync(webUntisServer, webUntisSchule, webUntisBenutzername, webUntisPasswort) { erfolgreich, meldung ->
+                        webUntisStatusIstFehler = !erfolgreich
+                        webUntisStatus = meldung ?: if (erfolgreich) {
                             "Stundenplan erfolgreich synchronisiert."
                         } else {
-                            "Synchronisierung fehlgeschlagen - Zugangsdaten und Server prüfen."
+                            "Synchronisierung fehlgeschlagen."
                         }
                     }
                 },

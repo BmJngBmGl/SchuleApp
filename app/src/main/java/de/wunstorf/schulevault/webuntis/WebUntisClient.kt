@@ -12,6 +12,7 @@ import kotlinx.datetime.plus
 import kotlinx.datetime.todayIn
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
@@ -19,13 +20,18 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
+/** Ergebnis eines Sync-Versuchs - im Fehlerfall mit einer konkreten, in der UI anzeigbaren Meldung statt nur "hat nicht geklappt". */
+sealed class WebUntisErgebnis {
+    data class Erfolg(val plan: Map<Wochentag, List<String>>) : WebUntisErgebnis()
+    data class Fehler(val meldung: String) : WebUntisErgebnis()
+}
+
+private class WebUntisApiException(message: String) : Exception(message)
+
 /**
  * Client fuer die inoffizielle WebUntis-JSON-RPC-API - von WebUntis nicht
  * offiziell veroeffentlicht, aber seit Jahren stabil und Basis etablierter
- * Community-Tools (z. B. python-webuntis). Liefert bei jedem Fehler
- * (falsches Login, Netzwerkfehler, unerwartete Antwort) null statt zu
- * crashen - der Aufrufer ueberschreibt die bestehende Vault-Datei dann
- * bewusst NICHT.
+ * Community-Tools (z. B. python-webuntis).
  */
 object WebUntisClient {
 
@@ -45,7 +51,7 @@ object WebUntisClient {
         schule: String,
         benutzername: String,
         passwort: String
-    ): Map<Wochentag, List<String>>? = withContext(Dispatchers.IO) {
+    ): WebUntisErgebnis = withContext(Dispatchers.IO) {
         try {
             val endpoint = "https://$server/WebUntis/jsonrpc.do?school=" +
                 URLEncoder.encode(schule, "UTF-8")
@@ -53,7 +59,7 @@ object WebUntisClient {
             val loginErgebnis = rpcObjekt(
                 endpoint, "authenticate",
                 JSONObject().put("user", benutzername).put("password", passwort).put("client", CLIENT_NAME)
-            ) ?: return@withContext null
+            )
             val personId = loginErgebnis.getInt("personId")
             val personType = loginErgebnis.optInt("personType", 5)
 
@@ -72,19 +78,31 @@ object WebUntisClient {
 
             rpcObjekt(endpoint, "logout", JSONObject())
 
-            stundenErgebnis?.let { parseStundenplan(it) }
+            val plan = parseStundenplan(stundenErgebnis)
+            if (plan.isEmpty()) {
+                WebUntisErgebnis.Fehler(
+                    "Login war erfolgreich, aber WebUntis hat keine Stunden für die aktuelle Woche " +
+                        "geliefert - möglicherweise ist gerade kein Schuljahr aktiv (z. B. in den Ferien)."
+                )
+            } else {
+                WebUntisErgebnis.Erfolg(plan)
+            }
+        } catch (e: WebUntisApiException) {
+            WebUntisErgebnis.Fehler(e.message ?: "Unbekannter WebUntis-Fehler.")
         } catch (e: Exception) {
-            null
+            WebUntisErgebnis.Fehler("Verbindung fehlgeschlagen: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
-    private fun rpcObjekt(endpoint: String, method: String, params: JSONObject): JSONObject? =
-        sendeRequest(endpoint, method, params)?.optJSONObject("result")
+    private fun rpcObjekt(endpoint: String, method: String, params: JSONObject): JSONObject =
+        sendeRequest(endpoint, method, params).optJSONObject("result")
+            ?: throw WebUntisApiException("Unerwartete Antwort von WebUntis auf \"$method\" (kein Ergebnis-Feld).")
 
-    private fun rpcArray(endpoint: String, method: String, params: JSONObject): JSONArray? =
-        sendeRequest(endpoint, method, params)?.optJSONArray("result")
+    private fun rpcArray(endpoint: String, method: String, params: JSONObject): JSONArray =
+        sendeRequest(endpoint, method, params).optJSONArray("result")
+            ?: throw WebUntisApiException("Unerwartete Antwort von WebUntis auf \"$method\" (kein Ergebnis-Feld).")
 
-    private fun sendeRequest(endpoint: String, method: String, params: JSONObject): JSONObject? {
+    private fun sendeRequest(endpoint: String, method: String, params: JSONObject): JSONObject {
         val body = JSONObject()
             .put("id", CLIENT_NAME)
             .put("method", method)
@@ -99,11 +117,28 @@ object WebUntisClient {
         connection.setRequestProperty("Content-Type", "application/json")
         connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
-        val antwortText = connection.inputStream.use { input ->
-            input.bufferedReader(Charsets.UTF_8).readText()
+        val antwortText = try {
+            connection.inputStream.use { it.bufferedReader(Charsets.UTF_8).readText() }
+        } catch (e: IOException) {
+            // Bei HTTP-Fehlerstatus (4xx/5xx) liefert WebUntis den JSON-Fehlertext
+            // oft trotzdem im errorStream statt im normalen inputStream.
+            val fehlerText = connection.errorStream?.use { it.bufferedReader(Charsets.UTF_8).readText() }
+            if (fehlerText.isNullOrBlank()) {
+                throw WebUntisApiException("HTTP-Fehler ${connection.responseCode} bei \"$method\".")
+            }
+            fehlerText
         }
+
         val antwort = JSONObject(antwortText)
-        return if (antwort.has("error")) null else antwort
+        if (antwort.has("error")) {
+            val fehler = antwort.getJSONObject("error")
+            throw WebUntisApiException(
+                fehler.optString("message").ifBlank {
+                    "WebUntis-Fehler bei \"$method\" (Code ${fehler.optInt("code")})."
+                }
+            )
+        }
+        return antwort
     }
 
     private data class StundenEintrag(val wochentag: Wochentag, val startTime: Int, val fach: String)
