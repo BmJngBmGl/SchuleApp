@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-     Schliesst die IServ-Zugangsdaten (Benutzername/Passwort) explizit von
-     Android-Cloud-Backup und Geraete-zu-Geraete-Transfer aus - dort steht
-     ein echtes Passwort im Klartext drin, das nicht unverschluesselt in
-     einem Backup landen soll.
+     Schliesst die IServ- und WebUntis-Zugangsdaten (Benutzername/Passwort)
+     explizit von Android-Cloud-Backup und Geraete-zu-Geraete-Transfer aus -
+     dort stehen echte Passwoerter im Klartext drin, die nicht
+     unverschluesselt in einem Backup landen sollen.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="datastore/iserv_settings.preferences_pb" />
+        <exclude domain="file" path="datastore/webuntis_settings.preferences_pb" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="datastore/iserv_settings.preferences_pb" />
+        <exclude domain="file" path="datastore/webuntis_settings.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>

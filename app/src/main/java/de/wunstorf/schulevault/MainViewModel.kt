@@ -13,10 +13,12 @@ import de.wunstorf.schulevault.data.Termin
 import de.wunstorf.schulevault.data.VaultNote
 import de.wunstorf.schulevault.data.VaultPreferences
 import de.wunstorf.schulevault.data.VaultRepository
+import de.wunstorf.schulevault.data.WebUntisPreferences
 import de.wunstorf.schulevault.iserv.IServSyncClient
 import de.wunstorf.schulevault.notifications.NotificationScheduler
 import de.wunstorf.schulevault.update.UpdateChecker
 import de.wunstorf.schulevault.update.UpdateInfo
+import de.wunstorf.schulevault.webuntis.WebUntisClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +44,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = VaultRepository(application)
     private val preferences = VaultPreferences(application)
     private val iservPreferences = IServPreferences(application)
+    private val webUntisPreferences = WebUntisPreferences(application)
 
     private val _uiState = MutableStateFlow(VaultUiState())
     val uiState: StateFlow<VaultUiState> = _uiState.asStateFlow()
@@ -57,6 +60,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _iservSyncLaeuft = MutableStateFlow(false)
     val iservSyncLaeuft: StateFlow<Boolean> = _iservSyncLaeuft.asStateFlow()
+
+    private val _webUntisSyncLaeuft = MutableStateFlow(false)
+    val webUntisSyncLaeuft: StateFlow<Boolean> = _webUntisSyncLaeuft.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -330,6 +336,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val erfolgreich = repository.klausurLoeschen(uri, klausur.note)
             if (erfolgreich) ladeVaultDaten(uri)
+            onFertig(erfolgreich)
+        }
+    }
+
+    /**
+     * Loggt sich bei WebUntis ein, laedt den Stundenplan der aktuellen Woche
+     * und schreibt ihn nach Organisation/Stundenplan.md. Manueller Vorgang
+     * (kein Auto-Sync beim Start), da Login+Abruf schwerer ist als der reine
+     * IServ-ICS-GET und sich Stundenplaene selten kurzfristig aendern.
+     */
+    fun webUntisSynchronisieren(
+        server: String,
+        schule: String,
+        benutzername: String,
+        passwort: String,
+        onFertig: (Boolean) -> Unit
+    ) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false)
+        viewModelScope.launch {
+            webUntisPreferences.speichern(server, schule, benutzername, passwort)
+            _webUntisSyncLaeuft.value = true
+            val plan = WebUntisClient.synchronisiereStundenplan(server, schule, benutzername, passwort)
+            val erfolgreich = plan != null && repository.speichereStundenplan(uri, plan)
+            _webUntisSyncLaeuft.value = false
             onFertig(erfolgreich)
         }
     }

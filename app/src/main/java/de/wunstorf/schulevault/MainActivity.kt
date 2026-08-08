@@ -90,6 +90,7 @@ private fun SchuleVaultApp(
     val updateInfo by viewModel.updateInfo.collectAsState()
     val iservTermine by viewModel.iservTermine.collectAsState()
     val iservSyncLaeuft by viewModel.iservSyncLaeuft.collectAsState()
+    val webUntisSyncLaeuft by viewModel.webUntisSyncLaeuft.collectAsState()
     val navController = rememberNavController()
     val context = LocalContext.current
 
@@ -196,6 +197,10 @@ private fun SchuleVaultApp(
                 iservSyncLaeuft = iservSyncLaeuft,
                 onSpeichern = { benutzername, passwort, kalenderListe ->
                     viewModel.iservEinstellungenSpeichern(benutzername, passwort, kalenderListe)
+                },
+                webUntisSyncLaeuft = webUntisSyncLaeuft,
+                onWebUntisSync = { server, schule, benutzername, passwort, callback ->
+                    viewModel.webUntisSynchronisieren(server, schule, benutzername, passwort, callback)
                 },
                 onZurueck = { navController.popBackStack() }
             )

@@ -245,6 +245,45 @@ class VaultRepository(private val context: Context) {
     }
 
     /**
+     * Schreibt Organisation/Stundenplan.md komplett neu (z. B. nach einem
+     * WebUntis-Sync) - im selben Format, das StundenplanParser erwartet.
+     * Ueberschreibt bestehenden Inhalt vollstaendig, das ist bei einem
+     * "Synchronisieren"-Vorgang erwartetes Verhalten.
+     */
+    fun speichereStundenplan(rootUri: Uri, plan: Map<Wochentag, List<String>>): Boolean {
+        val ordner = findOrCreateFolder(rootUri, "Organisation") ?: return false
+        val doc = ordner.findFile("Stundenplan.md")
+            ?: ordner.createFile("text/markdown", "Stundenplan.md")
+            ?: return false
+
+        val body = buildString {
+            appendLine("# Stundenplan")
+            appendLine()
+            append("Automatisch aus WebUntis synchronisiert - manuelle Änderungen werden beim")
+            appendLine(" nächsten Sync überschrieben.")
+            Wochentag.entries.forEach { tag ->
+                val faecher = plan[tag]
+                if (!faecher.isNullOrEmpty()) {
+                    appendLine()
+                    appendLine("## ${tag.anzeigeText}")
+                    faecher.forEachIndexed { index, fach -> appendLine("${index + 1}. $fach") }
+                }
+            }
+        }
+        val frontmatter = linkedMapOf("tags" to FrontmatterParser.formatList(listOf("stundenplan")))
+        val inhalt = FrontmatterParser.serialize(frontmatter, body)
+
+        return try {
+            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
+                OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Liefert die Themen der zuletzt bearbeiteten Notiz eines Fachs (nach
      * "datum" sortiert). Notizen ohne gueltiges Datum (z. B. aeltere
      * Archiv-Notizen ohne datum-Feld) werden dabei uebersprungen, da sie

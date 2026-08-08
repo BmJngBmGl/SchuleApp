@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import de.wunstorf.schulevault.data.IServKalenderConfig
 import de.wunstorf.schulevault.data.IServPreferences
+import de.wunstorf.schulevault.data.WebUntisPreferences
 import kotlinx.coroutines.flow.first
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,6 +43,14 @@ fun EinstellungenScreen(
     iservTerminAnzahl: Int,
     iservSyncLaeuft: Boolean,
     onSpeichern: (benutzername: String, passwort: String, kalenderListe: List<IServKalenderConfig>) -> Unit,
+    webUntisSyncLaeuft: Boolean,
+    onWebUntisSync: (
+        server: String,
+        schule: String,
+        benutzername: String,
+        passwort: String,
+        callback: (Boolean) -> Unit
+    ) -> Unit,
     onZurueck: () -> Unit
 ) {
     val context = LocalContext.current
@@ -49,11 +59,24 @@ fun EinstellungenScreen(
     var kalenderListe by remember { mutableStateOf(listOf<IServKalenderConfig>()) }
     var geladen by remember { mutableStateOf(false) }
 
+    var webUntisServer by remember { mutableStateOf("") }
+    var webUntisSchule by remember { mutableStateOf("") }
+    var webUntisBenutzername by remember { mutableStateOf("") }
+    var webUntisPasswort by remember { mutableStateOf("") }
+    var webUntisStatus by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(Unit) {
         val preferences = IServPreferences(context)
         benutzername = preferences.benutzername.first() ?: ""
         passwort = preferences.passwort.first() ?: ""
         kalenderListe = preferences.kalenderListe.first()
+
+        val webUntisPreferences = WebUntisPreferences(context)
+        webUntisServer = webUntisPreferences.server.first() ?: ""
+        webUntisSchule = webUntisPreferences.schule.first() ?: ""
+        webUntisBenutzername = webUntisPreferences.benutzername.first() ?: ""
+        webUntisPasswort = webUntisPreferences.passwort.first() ?: ""
+
         geladen = true
     }
 
@@ -160,6 +183,66 @@ fun EinstellungenScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Speichern")
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Text("WebUntis-Stundenplan", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Überschreibt den Stundenplan im Vault komplett mit der aktuellen Woche aus WebUntis " +
+                    "(manuelle Änderungen an der Datei gehen dabei verloren). Zugangsdaten bleiben nur " +
+                    "auf diesem Gerät gespeichert.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            OutlinedTextField(
+                value = webUntisServer,
+                onValueChange = { webUntisServer = it },
+                label = { Text("Server (z. B. nessa.webuntis.com)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = webUntisSchule,
+                onValueChange = { webUntisSchule = it },
+                label = { Text("Schule") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = webUntisBenutzername,
+                onValueChange = { webUntisBenutzername = it },
+                label = { Text("WebUntis-Benutzername") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = webUntisPasswort,
+                onValueChange = { webUntisPasswort = it },
+                label = { Text("WebUntis-Passwort") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            webUntisStatus?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Button(
+                onClick = {
+                    webUntisStatus = null
+                    onWebUntisSync(webUntisServer, webUntisSchule, webUntisBenutzername, webUntisPasswort) { erfolgreich ->
+                        webUntisStatus = if (erfolgreich) {
+                            "Stundenplan erfolgreich synchronisiert."
+                        } else {
+                            "Synchronisierung fehlgeschlagen - Zugangsdaten und Server prüfen."
+                        }
+                    }
+                },
+                enabled = !webUntisSyncLaeuft &&
+                    webUntisServer.isNotBlank() && webUntisSchule.isNotBlank() &&
+                    webUntisBenutzername.isNotBlank() && webUntisPasswort.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (webUntisSyncLaeuft) "Synchronisiert..." else "Stundenplan synchronisieren")
             }
         }
     }
