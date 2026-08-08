@@ -91,7 +91,15 @@ object WebUntisClient {
                 }
             }
 
-            rpcObjekt(endpoint, "logout", JSONObject())
+            try {
+                // logout liefert kein JSON-Objekt als Ergebnis (z. B. nur "true") -
+                // rpcObjekt waere hier zu streng. Ein fehlgeschlagener Logout ist
+                // ausserdem irrelevant fuer das eigentliche Sync-Ergebnis, die
+                // Session laeuft ohnehin von selbst ab.
+                sendeRequest(endpoint, "logout", JSONObject())
+            } catch (e: Exception) {
+                // ignorieren
+            }
 
             val plan = parseStundenplan(JSONArray(alleEintraege))
             if (plan.isEmpty()) {

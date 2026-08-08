@@ -3,6 +3,8 @@ package de.wunstorf.schulevault.data
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -15,6 +17,11 @@ import java.io.OutputStreamWriter
  * verbieten direkten Dateisystemzugriff auf fremde App-/Sync-Ordner
  * (Scoped Storage), daher laeuft alles ueber die vom Nutzer einmalig
  * erteilte SAF-Baumberechtigung (ACTION_OPEN_DOCUMENT_TREE).
+ *
+ * Alle oeffentlichen Funktionen sind "suspend" und wechseln intern auf
+ * Dispatchers.IO - DocumentFile/ContentResolver-Zugriffe sind blockierendes
+ * I/O und duerfen nicht auf dem Hauptthread laufen (das fuehrte vorher zu
+ * spuerbaren Rucklern/Haengern beim Oeffnen von Screens wie dem Stundenplan).
  */
 class VaultRepository(private val context: Context) {
 
@@ -23,9 +30,9 @@ class VaultRepository(private val context: Context) {
      * "Mathematik", "Termine", "Chemie", ...) - entspricht den
      * Fachordnern/Sonderordnern in Obsidian.
      */
-    fun listTopLevelFolders(rootUri: Uri): List<DocumentFile> {
-        val root = DocumentFile.fromTreeUri(context, rootUri) ?: return emptyList()
-        return root.listFiles().filter { it.isDirectory }.sortedBy { it.name }
+    suspend fun listTopLevelFolders(rootUri: Uri): List<DocumentFile> = withContext(Dispatchers.IO) {
+        val root = DocumentFile.fromTreeUri(context, rootUri) ?: return@withContext emptyList()
+        root.listFiles().filter { it.isDirectory }.sortedBy { it.name }
     }
 
     private fun findFolder(rootUri: Uri, folderName: String): DocumentFile? {
@@ -40,9 +47,9 @@ class VaultRepository(private val context: Context) {
     }
 
     /** Liest alle .md-Dateien eines Unterordners und parst sie zu VaultNote. */
-    fun listNotesInFolder(rootUri: Uri, folderName: String): List<VaultNote> {
-        val folder = findFolder(rootUri, folderName) ?: return emptyList()
-        return folder.listFiles()
+    suspend fun listNotesInFolder(rootUri: Uri, folderName: String): List<VaultNote> = withContext(Dispatchers.IO) {
+        val folder = findFolder(rootUri, folderName) ?: return@withContext emptyList()
+        folder.listFiles()
             .filter { it.isFile && it.name?.endsWith(".md") == true }
             .mapNotNull { doc -> readNote(doc, folderName) }
     }
@@ -77,8 +84,8 @@ class VaultRepository(private val context: Context) {
      * werden uebersprungen - die App verwaltet nur EINZELTERMINE mit
      * genau einem Datum, keine Tabellen-Sammelnotizen.
      */
-    fun loadAlleTermine(rootUri: Uri): List<Termin> {
-        return listNotesInFolder(rootUri, "Termine").mapNotNull { note ->
+    suspend fun loadAlleTermine(rootUri: Uri): List<Termin> = withContext(Dispatchers.IO) {
+        listNotesInFolder(rootUri, "Termine").mapNotNull { note ->
             val datumRoh = note.datum ?: return@mapNotNull null
             val datum = parseDatum(datumRoh) ?: return@mapNotNull null
             Termin(
@@ -113,14 +120,14 @@ class VaultRepository(private val context: Context) {
      * Format entspricht exakt der bestehenden Vault-Konvention:
      * Frontmatter mit datum: "TT-MM-JJJJ", Tags #termin (+ #schule optional).
      */
-    fun neuenTerminSpeichern(
+    suspend fun neuenTerminSpeichern(
         rootUri: Uri,
         titel: String,
         datum: LocalDate,
         istSchulisch: Boolean,
         notizText: String
-    ): Boolean {
-        val ordner = findFolder(rootUri, "Termine") ?: return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Termine") ?: return@withContext false
         val datumFormatiert = "%02d-%02d-%04d".format(datum.dayOfMonth, datum.monthNumber, datum.year)
         val tags = mutableListOf("termin")
         if (istSchulisch) tags.add("schule")
@@ -132,22 +139,22 @@ class VaultRepository(private val context: Context) {
         val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
         val dateiName = "${dateiNameAusTitel(titel)}.md"
 
-        return schreibeNeueDatei(ordner, dateiName, inhalt)
+        schreibeNeueDatei(ordner, dateiName, inhalt)
     }
 
     /**
      * Legt eine neue Lernnotiz im gewaehlten Fachordner an, nach dem
      * bestehenden Vault-Format JJJJ-MM-TT_kurztitel.md.
      */
-    fun neueLernnotizSpeichern(
+    suspend fun neueLernnotizSpeichern(
         rootUri: Uri,
         fach: String,
         titel: String,
         themen: List<String>,
         notizText: String,
         heute: LocalDate
-    ): Boolean {
-        val ordner = findFolder(rootUri, fach) ?: return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, fach) ?: return@withContext false
         val datumPraefix = "%04d-%02d-%02d".format(heute.year, heute.monthNumber, heute.dayOfMonth)
 
         val frontmatter = linkedMapOf(
@@ -159,7 +166,7 @@ class VaultRepository(private val context: Context) {
         val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
         val dateiName = "${datumPraefix}_${dateiNameAusTitel(titel)}.md"
 
-        return schreibeNeueDatei(ordner, dateiName, inhalt)
+        schreibeNeueDatei(ordner, dateiName, inhalt)
     }
 
     /**
@@ -168,21 +175,21 @@ class VaultRepository(private val context: Context) {
      * der DocumentFile-Handle per findFile() neu geholt werden, da er nach
      * renameTo() laut Android-Doku als ungueltig gilt.
      */
-    fun terminAktualisieren(
+    suspend fun terminAktualisieren(
         rootUri: Uri,
         note: VaultNote,
         titel: String,
         datum: LocalDate,
         istSchulisch: Boolean,
         notizText: String
-    ): Boolean {
-        val ordner = findFolder(rootUri, "Termine") ?: return false
-        var doc = ordner.findFile(note.fileName) ?: return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Termine") ?: return@withContext false
+        var doc = ordner.findFile(note.fileName) ?: return@withContext false
 
         val neuerDateiName = "${dateiNameAusTitel(titel)}.md"
         if (doc.name != neuerDateiName) {
-            if (!doc.renameTo(neuerDateiName)) return false
-            doc = ordner.findFile(neuerDateiName) ?: return false
+            if (!doc.renameTo(neuerDateiName)) return@withContext false
+            doc = ordner.findFile(neuerDateiName) ?: return@withContext false
         }
 
         val datumFormatiert = "%02d-%02d-%04d".format(datum.dayOfMonth, datum.monthNumber, datum.year)
@@ -194,7 +201,7 @@ class VaultRepository(private val context: Context) {
         )
         val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
 
-        return try {
+        try {
             context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
                 OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
             }
@@ -205,10 +212,10 @@ class VaultRepository(private val context: Context) {
     }
 
     /** Loescht einen Termin unwiderruflich. Erinnerungen muss der Aufrufer separat stornieren. */
-    fun terminLoeschen(rootUri: Uri, note: VaultNote): Boolean {
-        val ordner = findFolder(rootUri, "Termine") ?: return false
-        val doc = ordner.findFile(note.fileName) ?: return false
-        return try {
+    suspend fun terminLoeschen(rootUri: Uri, note: VaultNote): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Termine") ?: return@withContext false
+        val doc = ordner.findFile(note.fileName) ?: return@withContext false
+        try {
             doc.delete()
         } catch (e: Exception) {
             false
@@ -221,10 +228,10 @@ class VaultRepository(private val context: Context) {
      * Index/Cache - bei den ueblichen Vault-Groessen fuer ein Schuljahr
      * reicht ein einfacher linearer Scan voellig aus.
      */
-    fun sucheAlleNotizen(rootUri: Uri, query: String): List<VaultNote> {
+    suspend fun sucheAlleNotizen(rootUri: Uri, query: String): List<VaultNote> = withContext(Dispatchers.IO) {
         val q = query.trim().lowercase()
-        if (q.isEmpty()) return emptyList()
-        return listTopLevelFolders(rootUri)
+        if (q.isEmpty()) return@withContext emptyList()
+        listTopLevelFolders(rootUri)
             .mapNotNull { it.name }
             .flatMap { listNotesInFolder(rootUri, it) }
             .filter { note ->
@@ -236,12 +243,12 @@ class VaultRepository(private val context: Context) {
     }
 
     /** Liest Organisation/Stundenplan.md und liefert je Wochentag die Faecher in Stundenreihenfolge. */
-    fun loadStundenplan(rootUri: Uri): Map<Wochentag, List<String>> {
-        val ordner = findFolder(rootUri, "Organisation") ?: return emptyMap()
-        val doc = ordner.findFile("Stundenplan.md") ?: return emptyMap()
-        val raw = readTextContent(doc.uri) ?: return emptyMap()
+    suspend fun loadStundenplan(rootUri: Uri): Map<Wochentag, List<String>> = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Organisation") ?: return@withContext emptyMap()
+        val doc = ordner.findFile("Stundenplan.md") ?: return@withContext emptyMap()
+        val raw = readTextContent(doc.uri) ?: return@withContext emptyMap()
         val (_, body) = FrontmatterParser.parse(raw)
-        return StundenplanParser.parse(body)
+        StundenplanParser.parse(body)
     }
 
     /**
@@ -250,38 +257,39 @@ class VaultRepository(private val context: Context) {
      * Ueberschreibt bestehenden Inhalt vollstaendig, das ist bei einem
      * "Synchronisieren"-Vorgang erwartetes Verhalten.
      */
-    fun speichereStundenplan(rootUri: Uri, plan: Map<Wochentag, List<String>>): Boolean {
-        val ordner = findOrCreateFolder(rootUri, "Organisation") ?: return false
-        val doc = ordner.findFile("Stundenplan.md")
-            ?: ordner.createFile("text/markdown", "Stundenplan.md")
-            ?: return false
+    suspend fun speichereStundenplan(rootUri: Uri, plan: Map<Wochentag, List<String>>): Boolean =
+        withContext(Dispatchers.IO) {
+            val ordner = findOrCreateFolder(rootUri, "Organisation") ?: return@withContext false
+            val doc = ordner.findFile("Stundenplan.md")
+                ?: ordner.createFile("text/markdown", "Stundenplan.md")
+                ?: return@withContext false
 
-        val body = buildString {
-            appendLine("# Stundenplan")
-            appendLine()
-            append("Automatisch aus WebUntis synchronisiert - manuelle Änderungen werden beim")
-            appendLine(" nächsten Sync überschrieben.")
-            Wochentag.entries.forEach { tag ->
-                val faecher = plan[tag]
-                if (!faecher.isNullOrEmpty()) {
-                    appendLine()
-                    appendLine("## ${tag.anzeigeText}")
-                    faecher.forEachIndexed { index, fach -> appendLine("${index + 1}. $fach") }
+            val body = buildString {
+                appendLine("# Stundenplan")
+                appendLine()
+                append("Automatisch aus WebUntis synchronisiert - manuelle Änderungen werden beim")
+                appendLine(" nächsten Sync überschrieben.")
+                Wochentag.entries.forEach { tag ->
+                    val faecher = plan[tag]
+                    if (!faecher.isNullOrEmpty()) {
+                        appendLine()
+                        appendLine("## ${tag.anzeigeText}")
+                        faecher.forEachIndexed { index, fach -> appendLine("${index + 1}. $fach") }
+                    }
                 }
             }
-        }
-        val frontmatter = linkedMapOf("tags" to FrontmatterParser.formatList(listOf("stundenplan")))
-        val inhalt = FrontmatterParser.serialize(frontmatter, body)
+            val frontmatter = linkedMapOf("tags" to FrontmatterParser.formatList(listOf("stundenplan")))
+            val inhalt = FrontmatterParser.serialize(frontmatter, body)
 
-        return try {
-            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
-                OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+            try {
+                context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
+                    OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+                }
+                true
+            } catch (e: Exception) {
+                false
             }
-            true
-        } catch (e: Exception) {
-            false
         }
-    }
 
     /**
      * Liefert die Themen der zuletzt bearbeiteten Notiz eines Fachs (nach
@@ -289,13 +297,13 @@ class VaultRepository(private val context: Context) {
      * Archiv-Notizen ohne datum-Feld) werden dabei uebersprungen, da sie
      * sich zeitlich nicht einordnen lassen.
      */
-    fun letztesThemaFuerFach(rootUri: Uri, fach: String): String? {
+    suspend fun letztesThemaFuerFach(rootUri: Uri, fach: String): String? = withContext(Dispatchers.IO) {
         val neueste = listNotesInFolder(rootUri, fach)
             .mapNotNull { note -> note.datum?.let { parseLernnotizDatum(it) }?.let { it to note } }
             .maxByOrNull { (datum, _) -> datum }
             ?.second
-            ?: return null
-        return neueste.themen.takeIf { it.isNotEmpty() }?.joinToString(", ")
+            ?: return@withContext null
+        neueste.themen.takeIf { it.isNotEmpty() }?.joinToString(", ")
     }
 
     /** Erwartetes Format bei Lernnotizen laut Vault-Konvention: "JJJJ-MM-TT" (anders als bei Terminen). */
@@ -319,8 +327,8 @@ class VaultRepository(private val context: Context) {
      * ein erledigt/offen-Status. Notizen ohne gueltiges "faelligAm"-Feld
      * werden uebersprungen (gleiches Prinzip wie bei loadAlleTermine).
      */
-    fun loadAlleHausaufgaben(rootUri: Uri): List<Hausaufgabe> {
-        return listNotesInFolder(rootUri, "Hausaufgaben").mapNotNull { note ->
+    suspend fun loadAlleHausaufgaben(rootUri: Uri): List<Hausaufgabe> = withContext(Dispatchers.IO) {
+        listNotesInFolder(rootUri, "Hausaufgaben").mapNotNull { note ->
             val faelligRoh = note.frontmatter["faelligAm"] ?: return@mapNotNull null
             val faelligAm = parseDatum(faelligRoh) ?: return@mapNotNull null
             Hausaufgabe(
@@ -335,14 +343,14 @@ class VaultRepository(private val context: Context) {
     }
 
     /** Legt eine neue Hausaufgabe an. Erzeugt den "Hausaufgaben"-Ordner beim allerersten Eintrag automatisch. */
-    fun neueHausaufgabeSpeichern(
+    suspend fun neueHausaufgabeSpeichern(
         rootUri: Uri,
         fach: String,
         titel: String,
         faelligAm: LocalDate,
         notizText: String
-    ): Boolean {
-        val ordner = findOrCreateFolder(rootUri, "Hausaufgaben") ?: return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findOrCreateFolder(rootUri, "Hausaufgaben") ?: return@withContext false
         val frontmatter = linkedMapOf(
             "fach" to fach,
             "faelligAm" to "\"${formatiereDatum(faelligAm)}\"",
@@ -351,11 +359,11 @@ class VaultRepository(private val context: Context) {
         )
         val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
         val dateiName = "${dateiNameAusTitel(titel)}.md"
-        return schreibeNeueDatei(ordner, dateiName, inhalt)
+        schreibeNeueDatei(ordner, dateiName, inhalt)
     }
 
     /** Ueberschreibt eine bestehende Hausaufgabe (Inhalt + optional Umbenennung bei Titeländerung), gleiches Muster wie terminAktualisieren. */
-    fun hausaufgabeAktualisieren(
+    suspend fun hausaufgabeAktualisieren(
         rootUri: Uri,
         note: VaultNote,
         fach: String,
@@ -363,14 +371,14 @@ class VaultRepository(private val context: Context) {
         faelligAm: LocalDate,
         erledigt: Boolean,
         notizText: String
-    ): Boolean {
-        val ordner = findFolder(rootUri, "Hausaufgaben") ?: return false
-        var doc = ordner.findFile(note.fileName) ?: return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Hausaufgaben") ?: return@withContext false
+        var doc = ordner.findFile(note.fileName) ?: return@withContext false
 
         val neuerDateiName = "${dateiNameAusTitel(titel)}.md"
         if (doc.name != neuerDateiName) {
-            if (!doc.renameTo(neuerDateiName)) return false
-            doc = ordner.findFile(neuerDateiName) ?: return false
+            if (!doc.renameTo(neuerDateiName)) return@withContext false
+            doc = ordner.findFile(neuerDateiName) ?: return@withContext false
         }
 
         val frontmatter = linkedMapOf(
@@ -381,7 +389,7 @@ class VaultRepository(private val context: Context) {
         )
         val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
 
-        return try {
+        try {
             context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
                 OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
             }
@@ -392,10 +400,10 @@ class VaultRepository(private val context: Context) {
     }
 
     /** Loescht eine Hausaufgabe unwiderruflich. */
-    fun hausaufgabeLoeschen(rootUri: Uri, note: VaultNote): Boolean {
-        val ordner = findFolder(rootUri, "Hausaufgaben") ?: return false
-        val doc = ordner.findFile(note.fileName) ?: return false
-        return try {
+    suspend fun hausaufgabeLoeschen(rootUri: Uri, note: VaultNote): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Hausaufgaben") ?: return@withContext false
+        val doc = ordner.findFile(note.fileName) ?: return@withContext false
+        try {
             doc.delete()
         } catch (e: Exception) {
             false
@@ -412,8 +420,8 @@ class VaultRepository(private val context: Context) {
      * gilt als verstanden, sobald irgendeine Lernnotiz dieses Thema (case-
      * insensitiv) fuehrt UND als verstanden markiert ist.
      */
-    fun loadAlleKlausuren(rootUri: Uri): List<Klausur> {
-        return listNotesInFolder(rootUri, "Klausuren").mapNotNull { note ->
+    suspend fun loadAlleKlausuren(rootUri: Uri): List<Klausur> = withContext(Dispatchers.IO) {
+        listNotesInFolder(rootUri, "Klausuren").mapNotNull { note ->
             val datumRoh = note.datum ?: return@mapNotNull null
             val datum = parseDatum(datumRoh) ?: return@mapNotNull null
             val fach = note.fach ?: return@mapNotNull null
@@ -428,7 +436,7 @@ class VaultRepository(private val context: Context) {
         }.sortedBy { it.datum }
     }
 
-    private fun klausurThemenStatus(rootUri: Uri, fach: String, relevanteThemen: List<String>): Map<String, Boolean> {
+    private suspend fun klausurThemenStatus(rootUri: Uri, fach: String, relevanteThemen: List<String>): Map<String, Boolean> {
         val notizenDesFachs = listNotesInFolder(rootUri, fach)
         return relevanteThemen.associateWith { thema ->
             notizenDesFachs.any { notiz ->
@@ -438,14 +446,14 @@ class VaultRepository(private val context: Context) {
     }
 
     /** Legt eine neue Klausur an. Erzeugt den "Klausuren"-Ordner beim allerersten Eintrag automatisch. */
-    fun neueKlausurSpeichern(
+    suspend fun neueKlausurSpeichern(
         rootUri: Uri,
         fach: String,
         titel: String,
         datum: LocalDate,
         relevanteThemen: List<String>
-    ): Boolean {
-        val ordner = findOrCreateFolder(rootUri, "Klausuren") ?: return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findOrCreateFolder(rootUri, "Klausuren") ?: return@withContext false
         val frontmatter = linkedMapOf(
             "fach" to fach,
             "datum" to "\"${formatiereDatum(datum)}\"",
@@ -454,25 +462,25 @@ class VaultRepository(private val context: Context) {
         )
         val inhalt = FrontmatterParser.serialize(frontmatter, "")
         val dateiName = "${dateiNameAusTitel(titel)}.md"
-        return schreibeNeueDatei(ordner, dateiName, inhalt)
+        schreibeNeueDatei(ordner, dateiName, inhalt)
     }
 
     /** Ueberschreibt eine bestehende Klausur (Inhalt + optional Umbenennung bei Titeländerung), gleiches Muster wie terminAktualisieren. */
-    fun klausurAktualisieren(
+    suspend fun klausurAktualisieren(
         rootUri: Uri,
         note: VaultNote,
         fach: String,
         titel: String,
         datum: LocalDate,
         relevanteThemen: List<String>
-    ): Boolean {
-        val ordner = findFolder(rootUri, "Klausuren") ?: return false
-        var doc = ordner.findFile(note.fileName) ?: return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Klausuren") ?: return@withContext false
+        var doc = ordner.findFile(note.fileName) ?: return@withContext false
 
         val neuerDateiName = "${dateiNameAusTitel(titel)}.md"
         if (doc.name != neuerDateiName) {
-            if (!doc.renameTo(neuerDateiName)) return false
-            doc = ordner.findFile(neuerDateiName) ?: return false
+            if (!doc.renameTo(neuerDateiName)) return@withContext false
+            doc = ordner.findFile(neuerDateiName) ?: return@withContext false
         }
 
         val frontmatter = linkedMapOf(
@@ -483,7 +491,7 @@ class VaultRepository(private val context: Context) {
         )
         val inhalt = FrontmatterParser.serialize(frontmatter, note.body)
 
-        return try {
+        try {
             context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
                 OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
             }
@@ -494,10 +502,10 @@ class VaultRepository(private val context: Context) {
     }
 
     /** Loescht eine Klausur unwiderruflich. */
-    fun klausurLoeschen(rootUri: Uri, note: VaultNote): Boolean {
-        val ordner = findFolder(rootUri, "Klausuren") ?: return false
-        val doc = ordner.findFile(note.fileName) ?: return false
-        return try {
+    suspend fun klausurLoeschen(rootUri: Uri, note: VaultNote): Boolean = withContext(Dispatchers.IO) {
+        val ordner = findFolder(rootUri, "Klausuren") ?: return@withContext false
+        val doc = ordner.findFile(note.fileName) ?: return@withContext false
+        try {
             doc.delete()
         } catch (e: Exception) {
             false
@@ -510,28 +518,30 @@ class VaultRepository(private val context: Context) {
      * Bestehende Frontmatter-Felder bleiben erhalten, nur "verstanden" wird
      * ueberschrieben.
      */
-    fun notizVerstandenSetzen(rootUri: Uri, note: VaultNote, verstanden: Boolean): Boolean {
-        val ordner = findFolder(rootUri, note.folderPath) ?: return false
-        val doc = ordner.findFile(note.fileName) ?: return false
+    suspend fun notizVerstandenSetzen(rootUri: Uri, note: VaultNote, verstanden: Boolean): Boolean =
+        withContext(Dispatchers.IO) {
+            val ordner = findFolder(rootUri, note.folderPath) ?: return@withContext false
+            val doc = ordner.findFile(note.fileName) ?: return@withContext false
 
-        val neueFrontmatter = LinkedHashMap(note.frontmatter)
-        neueFrontmatter["verstanden"] = verstanden.toString()
-        val inhalt = FrontmatterParser.serialize(neueFrontmatter, note.body)
+            val neueFrontmatter = LinkedHashMap(note.frontmatter)
+            neueFrontmatter["verstanden"] = verstanden.toString()
+            val inhalt = FrontmatterParser.serialize(neueFrontmatter, note.body)
 
-        return try {
-            context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
-                OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+            try {
+                context.contentResolver.openOutputStream(doc.uri, "wt")?.use { output ->
+                    OutputStreamWriter(output, Charsets.UTF_8).use { it.write(inhalt) }
+                }
+                true
+            } catch (e: Exception) {
+                false
             }
-            true
-        } catch (e: Exception) {
-            false
         }
-    }
 
     /**
      * Prueft, ob die dauerhafte SAF-Berechtigung fuer den Vault-Ordner noch
      * besteht. Kann z. B. nach Umbenennen/Verschieben des Ordners oder nach
      * einem Reset der App-Berechtigungen durch das System entzogen werden.
+     * Kein Datei-I/O (nur ein In-Memory-Check) - bewusst NICHT suspend.
      */
     fun hatGueltigeBerechtigung(rootUri: Uri): Boolean =
         context.contentResolver.persistedUriPermissions.any {
