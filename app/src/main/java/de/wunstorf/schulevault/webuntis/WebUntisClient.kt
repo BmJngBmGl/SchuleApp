@@ -65,24 +65,39 @@ object WebUntisClient {
 
             val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
             val montag = heute.minus(DatePeriod(days = heute.dayOfWeek.value - 1))
-            val freitag = montag.plus(DatePeriod(days = 4))
+            val wochentage = (0..4).map { montag.plus(DatePeriod(days = it)) }
 
-            val stundenErgebnis = rpcArray(
-                endpoint, "getTimetable",
-                JSONObject()
-                    .put("id", personId)
-                    .put("type", personType)
-                    .put("startDate", jahrMonatTag(montag))
-                    .put("endDate", jahrMonatTag(freitag))
-            )
+            // Tag-fuer-Tag statt der ganzen Woche auf einmal abfragen: WebUntis
+            // lehnt Zeitraeume ab, die zwei verschiedene Schuljahre ueberschneiden
+            // (z. B. kurz vor/nach den Sommerferien, wenn das neue Schuljahr noch
+            // nicht angelegt ist) - einzelne nicht abrufbare Tage werden dann
+            // uebersprungen statt den ganzen Sync abzubrechen.
+            val alleEintraege = mutableListOf<Any?>()
+            for (tag in wochentage) {
+                try {
+                    val tagesErgebnis = rpcArray(
+                        endpoint, "getTimetable",
+                        JSONObject()
+                            .put("id", personId)
+                            .put("type", personType)
+                            .put("startDate", jahrMonatTag(tag))
+                            .put("endDate", jahrMonatTag(tag))
+                    )
+                    for (i in 0 until tagesErgebnis.length()) {
+                        alleEintraege.add(tagesErgebnis.get(i))
+                    }
+                } catch (e: WebUntisApiException) {
+                    // einzelner Tag nicht abrufbar (z. B. ausserhalb eines Schuljahres) - ueberspringen
+                }
+            }
 
             rpcObjekt(endpoint, "logout", JSONObject())
 
-            val plan = parseStundenplan(stundenErgebnis)
+            val plan = parseStundenplan(JSONArray(alleEintraege))
             if (plan.isEmpty()) {
                 WebUntisErgebnis.Fehler(
-                    "Login war erfolgreich, aber WebUntis hat keine Stunden für die aktuelle Woche " +
-                        "geliefert - möglicherweise ist gerade kein Schuljahr aktiv (z. B. in den Ferien)."
+                    "Login war erfolgreich, aber für keinen Tag dieser Woche waren Stunden abrufbar " +
+                        "- vermutlich ist gerade kein Schuljahr aktiv (z. B. in den Ferien)."
                 )
             } else {
                 WebUntisErgebnis.Erfolg(plan)
