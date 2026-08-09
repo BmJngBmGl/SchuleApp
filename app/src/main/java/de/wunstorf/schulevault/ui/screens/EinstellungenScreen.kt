@@ -51,6 +51,14 @@ fun EinstellungenScreen(
         passwort: String,
         callback: (erfolgreich: Boolean, meldung: String?) -> Unit
     ) -> Unit,
+    webUntisHausaufgabenSyncLaeuft: Boolean,
+    onWebUntisHausaufgabenSync: (
+        server: String,
+        schule: String,
+        benutzername: String,
+        passwort: String,
+        callback: (erfolgreich: Boolean, meldung: String) -> Unit
+    ) -> Unit,
     onZurueck: () -> Unit
 ) {
     val context = LocalContext.current
@@ -65,6 +73,8 @@ fun EinstellungenScreen(
     var webUntisPasswort by remember { mutableStateOf("") }
     var webUntisStatus by remember { mutableStateOf<String?>(null) }
     var webUntisStatusIstFehler by remember { mutableStateOf(false) }
+    var webUntisHausaufgabenStatus by remember { mutableStateOf<String?>(null) }
+    var webUntisHausaufgabenStatusIstFehler by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val preferences = IServPreferences(context)
@@ -252,6 +262,42 @@ fun EinstellungenScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(if (webUntisSyncLaeuft) "Synchronisiert..." else "Stundenplan synchronisieren")
+            }
+
+            Text(
+                "Importiert offene Hausaufgaben der nächsten 60 Tage aus WebUntis in den " +
+                    "Hausaufgaben-Tracker. Bereits importierte werden erkannt und nicht doppelt angelegt.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            webUntisHausaufgabenStatus?.let {
+                Text(
+                    it,
+                    color = if (webUntisHausaufgabenStatusIstFehler) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+
+            Button(
+                onClick = {
+                    webUntisHausaufgabenStatus = null
+                    onWebUntisHausaufgabenSync(
+                        webUntisServer, webUntisSchule, webUntisBenutzername, webUntisPasswort
+                    ) { erfolgreich, meldung ->
+                        webUntisHausaufgabenStatusIstFehler = !erfolgreich
+                        webUntisHausaufgabenStatus = meldung
+                    }
+                },
+                enabled = !webUntisHausaufgabenSyncLaeuft &&
+                    webUntisServer.isNotBlank() && webUntisSchule.isNotBlank() &&
+                    webUntisBenutzername.isNotBlank() && webUntisPasswort.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (webUntisHausaufgabenSyncLaeuft) "Importiert..." else "Hausaufgaben importieren")
             }
         }
     }

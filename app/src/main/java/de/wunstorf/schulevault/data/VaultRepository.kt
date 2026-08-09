@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import de.wunstorf.schulevault.webuntis.WebUntisHausaufgabe
 import kotlinx.datetime.LocalDate
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -292,18 +293,17 @@ class VaultRepository(private val context: Context) {
         }
 
     /**
-     * Liefert die Themen der zuletzt bearbeiteten Notiz eines Fachs (nach
-     * "datum" sortiert). Notizen ohne gueltiges Datum (z. B. aeltere
-     * Archiv-Notizen ohne datum-Feld) werden dabei uebersprungen, da sie
-     * sich zeitlich nicht einordnen lassen.
+     * Liefert die zuletzt bearbeitete Notiz eines Fachs (nach "datum"
+     * sortiert) - fuer die Themen-Anzeige UND als Sprungziel bei Klick im
+     * Stundenplan. Notizen ohne gueltiges Datum (z. B. aeltere Archiv-
+     * Notizen ohne datum-Feld) werden dabei uebersprungen, da sie sich
+     * zeitlich nicht einordnen lassen.
      */
-    suspend fun letztesThemaFuerFach(rootUri: Uri, fach: String): String? = withContext(Dispatchers.IO) {
-        val neueste = listNotesInFolder(rootUri, fach)
+    suspend fun letzteNotizFuerFach(rootUri: Uri, fach: String): VaultNote? = withContext(Dispatchers.IO) {
+        listNotesInFolder(rootUri, fach)
             .mapNotNull { note -> note.datum?.let { parseLernnotizDatum(it) }?.let { it to note } }
             .maxByOrNull { (datum, _) -> datum }
             ?.second
-            ?: return@withContext null
-        neueste.themen.takeIf { it.isNotEmpty() }?.joinToString(", ")
     }
 
     /** Erwartetes Format bei Lernnotizen laut Vault-Konvention: "JJJJ-MM-TT" (anders als bei Terminen). */
@@ -342,13 +342,20 @@ class VaultRepository(private val context: Context) {
         }.sortedBy { it.faelligAm }
     }
 
-    /** Legt eine neue Hausaufgabe an. Erzeugt den "Hausaufgaben"-Ordner beim allerersten Eintrag automatisch. */
+    /**
+     * Legt eine neue Hausaufgabe an. Erzeugt den "Hausaufgaben"-Ordner beim
+     * allerersten Eintrag automatisch. webuntisId ist optional und wird nur
+     * bei automatisch aus WebUntis importierten Hausaufgaben gesetzt - siehe
+     * webUntisHausaufgabenImportieren, das darueber Dubletten bei
+     * wiederholtem Import erkennt.
+     */
     suspend fun neueHausaufgabeSpeichern(
         rootUri: Uri,
         fach: String,
         titel: String,
         faelligAm: LocalDate,
-        notizText: String
+        notizText: String,
+        webuntisId: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val ordner = findOrCreateFolder(rootUri, "Hausaufgaben") ?: return@withContext false
         val frontmatter = linkedMapOf(
@@ -357,9 +364,38 @@ class VaultRepository(private val context: Context) {
             "erledigt" to "false",
             "tags" to FrontmatterParser.formatList(listOf("hausaufgabe"))
         )
+        if (webuntisId != null) frontmatter["webuntisId"] = "\"$webuntisId\""
         val inhalt = FrontmatterParser.serialize(frontmatter, notizText)
         val dateiName = "${dateiNameAusTitel(titel)}.md"
         schreibeNeueDatei(ordner, dateiName, inhalt)
+    }
+
+    /**
+     * Importiert WebUntis-Hausaufgaben als neue Dateien im "Hausaufgaben"-
+     * Ordner - Dubletten werden ueber das "webuntisId"-Frontmatterfeld
+     * bestehender Notizen erkannt und uebersprungen, damit ein wiederholter
+     * Import (z. B. taeglich ueber TagesSyncWorker) nicht jedes Mal
+     * Kopien anlegt. Liefert die Anzahl tatsaechlich neu angelegter Dateien.
+     */
+    suspend fun webUntisHausaufgabenImportieren(
+        rootUri: Uri,
+        hausaufgaben: List<WebUntisHausaufgabe>
+    ): Int = withContext(Dispatchers.IO) {
+        if (hausaufgaben.isEmpty()) return@withContext 0
+        val bekannteIds = listNotesInFolder(rootUri, "Hausaufgaben")
+            .mapNotNull { it.frontmatter["webuntisId"]?.trim()?.trim('"') }
+            .toSet()
+
+        var importiert = 0
+        hausaufgaben.forEach { hausaufgabe ->
+            if (hausaufgabe.webuntisId in bekannteIds) return@forEach
+            val titel = "${hausaufgabe.fach}: ${hausaufgabe.text}".take(80)
+            val erfolgreich = neueHausaufgabeSpeichern(
+                rootUri, hausaufgabe.fach, titel, hausaufgabe.faelligAm, hausaufgabe.text, hausaufgabe.webuntisId
+            )
+            if (erfolgreich) importiert++
+        }
+        importiert
     }
 
     /** Ueberschreibt eine bestehende Hausaufgabe (Inhalt + optional Umbenennung bei Titeländerung), gleiches Muster wie terminAktualisieren. */
@@ -414,14 +450,19 @@ class VaultRepository(private val context: Context) {
         "%02d-%02d-%04d".format(datum.dayOfMonth, datum.monthNumber, datum.year)
 
     /**
-     * Laedt alle Klausuren aus dem "Klausuren"-Ordner. Fuer jede Klausur wird
-     * je relevantem Thema berechnet, ob es "abgehakt" ist - abgeleitet aus
-     * den Lernnotizen desselben Fachs (nicht selbst gespeichert): ein Thema
-     * gilt als verstanden, sobald irgendeine Lernnotiz dieses Thema (case-
-     * insensitiv) fuehrt UND als verstanden markiert ist.
+     * Laedt alle Klausuren aus dem "Klausuren"-Ordner - eingeschraenkt auf
+     * Notizen mit dem "kl12"-Tag, da der Tracker nur die aktuelle Klassenstufe
+     * zeigen soll (aeltere Klausuren aus frueheren Schuljahren bleiben im
+     * Vault erhalten, tauchen im Tracker aber nicht mehr auf). Fuer jede
+     * Klausur wird je relevantem Thema berechnet, ob es "abgehakt" ist -
+     * abgeleitet aus den Lernnotizen desselben Fachs (nicht selbst
+     * gespeichert): ein Thema gilt als verstanden, sobald irgendeine
+     * Lernnotiz dieses Thema (case-insensitiv) fuehrt UND als verstanden
+     * markiert ist.
      */
     suspend fun loadAlleKlausuren(rootUri: Uri): List<Klausur> = withContext(Dispatchers.IO) {
         listNotesInFolder(rootUri, "Klausuren").mapNotNull { note ->
+            if (!note.tags.contains("kl12")) return@mapNotNull null
             val datumRoh = note.datum ?: return@mapNotNull null
             val datum = parseDatum(datumRoh) ?: return@mapNotNull null
             val fach = note.fach ?: return@mapNotNull null
@@ -458,7 +499,7 @@ class VaultRepository(private val context: Context) {
             "fach" to fach,
             "datum" to "\"${formatiereDatum(datum)}\"",
             "themen" to FrontmatterParser.formatList(relevanteThemen),
-            "tags" to FrontmatterParser.formatList(listOf("klausur", "schule"))
+            "tags" to FrontmatterParser.formatList(listOf("klausur", "schule", "kl12"))
         )
         val inhalt = FrontmatterParser.serialize(frontmatter, "")
         val dateiName = "${dateiNameAusTitel(titel)}.md"
@@ -487,7 +528,7 @@ class VaultRepository(private val context: Context) {
             "fach" to fach,
             "datum" to "\"${formatiereDatum(datum)}\"",
             "themen" to FrontmatterParser.formatList(relevanteThemen),
-            "tags" to FrontmatterParser.formatList(listOf("klausur", "schule"))
+            "tags" to FrontmatterParser.formatList(listOf("klausur", "schule", "kl12"))
         )
         val inhalt = FrontmatterParser.serialize(frontmatter, note.body)
 

@@ -16,10 +16,12 @@ import de.wunstorf.schulevault.data.VaultRepository
 import de.wunstorf.schulevault.data.WebUntisPreferences
 import de.wunstorf.schulevault.iserv.IServSyncClient
 import de.wunstorf.schulevault.notifications.NotificationScheduler
+import de.wunstorf.schulevault.sync.TagesSyncScheduler
 import de.wunstorf.schulevault.update.UpdateChecker
 import de.wunstorf.schulevault.update.UpdateInfo
 import de.wunstorf.schulevault.webuntis.WebUntisClient
 import de.wunstorf.schulevault.webuntis.WebUntisErgebnis
+import de.wunstorf.schulevault.webuntis.WebUntisHausaufgabenErgebnis
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,6 +67,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _webUntisSyncLaeuft = MutableStateFlow(false)
     val webUntisSyncLaeuft: StateFlow<Boolean> = _webUntisSyncLaeuft.asStateFlow()
 
+    private val _webUntisHausaufgabenSyncLaeuft = MutableStateFlow(false)
+    val webUntisHausaufgabenSyncLaeuft: StateFlow<Boolean> = _webUntisHausaufgabenSyncLaeuft.asStateFlow()
+
     init {
         viewModelScope.launch {
             preferences.vaultUri.collect { gespeicherteUri ->
@@ -83,6 +88,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         iservTermineNeuLaden()
+        // Startet (bzw. bestaetigt) die selbst-verlaengernde Sync-Kette fuer
+        // den taeglichen Hintergrund-Sync (8:00 + Schulschluss) - KEEP-Policy
+        // in TagesSyncScheduler sorgt dafuer, dass ein bereits laufender
+        // Zyklus bei jedem App-Start unangetastet bleibt.
+        viewModelScope.launch {
+            TagesSyncScheduler.sicherstellenGeplant(getApplication())
+        }
     }
 
     /** Laedt alle konfigurierten IServ-Kalender neu - einmal beim Start und erneut bei jedem manuellen "Neu laden". */
@@ -94,8 +106,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (kalenderListe.isEmpty() || benutzername.isNullOrBlank() || passwort.isNullOrBlank()) {
                 return@launch
             }
+            // Gecachte Termine (z. B. vom taeglichen Hintergrund-Sync) sofort
+            // zeigen, waehrend im Hintergrund frisch synchronisiert wird -
+            // kein Warten auf das Netzwerk fuer die erste Anzeige.
+            _iservTermine.value = iservPreferences.cachedTermine.first()
             _iservSyncLaeuft.value = true
-            _iservTermine.value = IServSyncClient.ladeTermine(kalenderListe, benutzername, passwort)
+            val frisch = IServSyncClient.ladeTermine(kalenderListe, benutzername, passwort)
+            _iservTermine.value = frisch
+            iservPreferences.cacheSpeichern(frisch)
             _iservSyncLaeuft.value = false
         }
     }
@@ -361,6 +379,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             when (val ergebnis = WebUntisClient.synchronisiereStundenplan(server, schule, benutzername, passwort)) {
                 is WebUntisErgebnis.Erfolg -> {
                     val gespeichert = repository.speichereStundenplan(uri, ergebnis.plan)
+                    webUntisPreferences.schulschlussZeitenSpeichern(ergebnis.schulschlussZeiten)
                     onFertig(
                         gespeichert,
                         if (gespeichert) null else "Stundenplan geladen, aber Speichern im Vault fehlgeschlagen."
@@ -369,6 +388,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is WebUntisErgebnis.Fehler -> onFertig(false, ergebnis.meldung)
             }
             _webUntisSyncLaeuft.value = false
+            // Schulschluss-Zeiten koennten sich geaendert haben - die naechste
+            // Sync-Uhrzeit direkt neu berechnen statt bis zum naechsten
+            // ohnehin geplanten Lauf zu warten.
+            TagesSyncScheduler.planeNaechstenLauf(getApplication())
+        }
+    }
+
+    /**
+     * Laedt offene WebUntis-Hausaufgaben und importiert neue (noch nicht per
+     * webuntisId bekannte) als Dateien in den Hausaufgaben-Tracker. Manueller
+     * Vorgang ueber einen Button in den Einstellungen - laeuft zusaetzlich
+     * automatisch im taeglichen Hintergrund-Sync (TagesSyncWorker).
+     */
+    fun webUntisHausaufgabenImportieren(
+        server: String,
+        schule: String,
+        benutzername: String,
+        passwort: String,
+        onFertig: (erfolgreich: Boolean, meldung: String) -> Unit
+    ) {
+        val uri = _uiState.value.vaultUri ?: return onFertig(false, "Kein Vault-Ordner ausgewählt.")
+        viewModelScope.launch {
+            _webUntisHausaufgabenSyncLaeuft.value = true
+            when (val ergebnis = WebUntisClient.ladeHausaufgaben(server, schule, benutzername, passwort)) {
+                is WebUntisHausaufgabenErgebnis.Erfolg -> {
+                    val anzahl = repository.webUntisHausaufgabenImportieren(uri, ergebnis.hausaufgaben)
+                    if (anzahl > 0) ladeVaultDaten(uri)
+                    onFertig(true, "$anzahl neue Hausaufgabe(n) importiert.")
+                }
+                is WebUntisHausaufgabenErgebnis.Fehler -> onFertig(false, ergebnis.meldung)
+            }
+            _webUntisHausaufgabenSyncLaeuft.value = false
         }
     }
 }

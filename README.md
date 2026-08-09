@@ -19,11 +19,25 @@ Dark-Theme.
   Erledigt-Checkbox (kein Erinnerungs-Countdown wie bei Terminen)
 - **Klausuren**: relevante Themen pro Klausur; der Fortschritt wird nicht
   separat gepflegt, sondern aus den "Verstanden"-markierten Lernnotizen des
-  jeweiligen Fachs abgeleitet
-- **Stundenplan**: zeigt pro Wochentag die nächsten 3 unterschiedlichen
-  Fächer plus das dort zuletzt bearbeitete Thema
+  jeweiligen Fachs abgeleitet. Der Tracker zeigt nur Notizen mit dem
+  `kl12`-Tag (aktuelle Klassenstufe)
+- **Stundenplan**: zeigt ab dem heutigen Wochentag (dann fortlaufend) je Tag
+  die nächsten 3 unterschiedlichen Fächer plus das dort zuletzt bearbeitete
+  Thema; jeder Tag lädt einzeln nach, statt auf die ganze Woche zu warten.
+  Klick auf ein Fach springt direkt zur zugehörigen (aufgeklappten) Notiz in
+  der Fach-Detailansicht
 - **IServ-Kalender**: beliebig viele ICS-Kalender-Abos (Benutzername/Passwort
-  per HTTP-Basic-Auth) werden read-only in der Übersicht eingeblendet
+  per HTTP-Basic-Auth) werden read-only in der Übersicht eingeblendet; der
+  zuletzt geladene Stand wird lokal gecacht und beim Start sofort angezeigt
+- **WebUntis-Sync**: Stundenplan der aktuellen Woche sowie offene
+  Hausaufgaben (nächste 60 Tage) lassen sich manuell aus WebUntis
+  synchronisieren bzw. importieren (Zahnrad-Icon); Hausaufgaben-Import
+  erkennt bereits importierte Einträge und legt sie nicht doppelt an
+- **Täglicher Hintergrund-Sync**: WorkManager aktualisiert Stundenplan (inkl.
+  Hausaufgaben-Import) und IServ-Kalender automatisch um 8:00 sowie nach dem
+  tatsächlichen Schulschluss des Tages (aus WebUntis erfasst, Default 13:45,
+  falls noch nichts erfasst wurde) - erfordert einmalig eingerichtete
+  WebUntis-/IServ-Zugangsdaten in den Einstellungen
 - **Volltextsuche** über alle Notizen (Titel, Body, Themen)
 - **Automatische Update-Prüfung** beim Start gegen die GitHub Releases dieses
   Repos, mit Download+Installation nach Bestätigung
@@ -77,6 +91,8 @@ erledigt: "false"
 tags: [hausaufgabe]
 ---
 ```
+(`webuntisId` optional, nur bei automatisch aus WebUntis importierten
+Hausaufgaben gesetzt - dient dort als Dublettenschutz)
 
 **Klausur** – `Klausuren/<Titel>.md`
 ```
@@ -84,9 +100,11 @@ tags: [hausaufgabe]
 fach: <Fach>
 datum: "TT-MM-JJJJ"
 themen: [Thema A, Thema B]
-tags: [klausur, schule]
+tags: [klausur, schule, kl12]
 ---
 ```
+(`kl12` wird von der App automatisch gesetzt und ist Voraussetzung dafür,
+dass die Klausur im Tracker erscheint)
 
 **Stundenplan** – `Organisation/Stundenplan.md` (einzige Datei, keine
 Frontmatter-Pflichtfelder, Fächer als nummerierte Liste unter einer

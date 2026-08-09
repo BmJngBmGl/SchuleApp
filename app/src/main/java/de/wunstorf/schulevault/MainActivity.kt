@@ -91,6 +91,7 @@ private fun SchuleVaultApp(
     val iservTermine by viewModel.iservTermine.collectAsState()
     val iservSyncLaeuft by viewModel.iservSyncLaeuft.collectAsState()
     val webUntisSyncLaeuft by viewModel.webUntisSyncLaeuft.collectAsState()
+    val webUntisHausaufgabenSyncLaeuft by viewModel.webUntisHausaufgabenSyncLaeuft.collectAsState()
     val navController = rememberNavController()
     val context = LocalContext.current
 
@@ -159,7 +160,8 @@ private fun SchuleVaultApp(
                 } else {
                     StundenplanScreen(
                         vaultUri = uiState.vaultUri,
-                        onZurueck = { pagerScope.launch { pagerState.animateScrollToPage(0) } }
+                        onZurueck = { pagerScope.launch { pagerState.animateScrollToPage(0) } },
+                        onFachKlick = { fach, notizId -> navController.navigate(NavRoutes.fachDetail(fach, notizId)) }
                     )
                 }
             }
@@ -201,6 +203,10 @@ private fun SchuleVaultApp(
                 webUntisSyncLaeuft = webUntisSyncLaeuft,
                 onWebUntisSync = { server, schule, benutzername, passwort, callback ->
                     viewModel.webUntisSynchronisieren(server, schule, benutzername, passwort, callback)
+                },
+                webUntisHausaufgabenSyncLaeuft = webUntisHausaufgabenSyncLaeuft,
+                onWebUntisHausaufgabenSync = { server, schule, benutzername, passwort, callback ->
+                    viewModel.webUntisHausaufgabenImportieren(server, schule, benutzername, passwort, callback)
                 },
                 onZurueck = { navController.popBackStack() }
             )
@@ -276,14 +282,22 @@ private fun SchuleVaultApp(
         }
         composable(
             route = NavRoutes.FACH_DETAIL,
-            arguments = listOf(androidx.navigation.navArgument("fach") {
-                type = androidx.navigation.NavType.StringType
-            })
+            arguments = listOf(
+                androidx.navigation.navArgument("fach") {
+                    type = androidx.navigation.NavType.StringType
+                },
+                androidx.navigation.navArgument("notizId") {
+                    type = androidx.navigation.NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
         ) { backStackEntry ->
             val fach = backStackEntry.arguments?.getString("fach") ?: return@composable
             FachDetailScreen(
                 fach = fach,
                 vaultUri = uiState.vaultUri,
+                fokusNotizId = backStackEntry.arguments?.getString("notizId"),
                 onZurueck = { navController.popBackStack() }
             )
         }

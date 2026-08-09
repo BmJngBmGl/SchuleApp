@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.layout.padding
@@ -42,17 +43,29 @@ import kotlinx.coroutines.launch
 fun FachDetailScreen(
     fach: String,
     vaultUri: Uri?,
-    onZurueck: () -> Unit
+    onZurueck: () -> Unit,
+    fokusNotizId: String? = null
 ) {
     val context = LocalContext.current
     val repository = remember { VaultRepository(context) }
     val scope = rememberCoroutineScope()
     var notizen by remember { mutableStateOf<List<VaultNote>?>(null) }
-    var ausgeklappteNotizen by remember { mutableStateOf(setOf<String>()) }
+    var ausgeklappteNotizen by remember {
+        mutableStateOf(fokusNotizId?.let { setOf(it) } ?: emptySet())
+    }
+    val listState = rememberLazyListState()
 
     LaunchedEffect(fach, vaultUri) {
         if (vaultUri != null) {
-            notizen = repository.listNotesInFolder(vaultUri, fach)
+            val geladeneNotizen = repository.listNotesInFolder(vaultUri, fach)
+            notizen = geladeneNotizen
+            // Direktsprung vom Stundenplan: die verwandte Notiz kommt bereits
+            // aufgeklappt in den sichtbaren Bereich, statt dass man sie erst
+            // in der Liste suchen muss.
+            if (fokusNotizId != null) {
+                val index = geladeneNotizen.indexOfFirst { it.documentId == fokusNotizId }
+                if (index >= 0) listState.scrollToItem(index)
+            }
         }
     }
 
@@ -77,6 +90,7 @@ fun FachDetailScreen(
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
