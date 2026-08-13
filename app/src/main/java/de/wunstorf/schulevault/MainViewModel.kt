@@ -380,9 +380,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is WebUntisErgebnis.Erfolg -> {
                     val gespeichert = repository.speichereStundenplan(uri, ergebnis.plan)
                     webUntisPreferences.schulschlussZeitenSpeichern(ergebnis.schulschlussZeiten)
+                    val debugZusatz = ergebnis.debugRohdaten.takeIf { it.isNotBlank() }?.let { "\n\nDebug: $it" } ?: ""
                     onFertig(
                         gespeichert,
-                        if (gespeichert) null else "Stundenplan geladen, aber Speichern im Vault fehlgeschlagen."
+                        if (gespeichert) {
+                            "Stundenplan erfolgreich synchronisiert.$debugZusatz"
+                        } else {
+                            "Stundenplan geladen, aber Speichern im Vault fehlgeschlagen."
+                        }
                     )
                 }
                 is WebUntisErgebnis.Fehler -> onFertig(false, ergebnis.meldung)

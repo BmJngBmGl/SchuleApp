@@ -31,7 +31,12 @@ sealed class WebUntisErgebnis {
      */
     data class Erfolg(
         val plan: Map<Wochentag, List<String>>,
-        val schulschlussZeiten: Map<Wochentag, String> = emptyMap()
+        val schulschlussZeiten: Map<Wochentag, String> = emptyMap(),
+        // Temporaer waehrend der Live-Fehlersuche zur falschen Kurs-/Fach-
+        // Zuordnung: kompakter Dump von su/kl je Rohdatensatz, damit sich
+        // das ohne weitere Screenshot-Runden direkt im Status-Text pruefen
+        // laesst. Kann entfernt werden, sobald die Feldzuordnung stimmt.
+        val debugRohdaten: String = ""
     ) : WebUntisErgebnis()
     data class Fehler(val meldung: String) : WebUntisErgebnis()
 }
@@ -178,7 +183,13 @@ object WebUntisClient {
                 }
                 WebUntisErgebnis.Fehler(meldung)
             } else {
-                WebUntisErgebnis.Erfolg(geparst.plan, geparst.schulschlussZeiten)
+                val debugRohdaten = alleEintraege.mapNotNull { it as? JSONObject }.joinToString(" | ") { obj ->
+                    val kl = obj.optJSONArray("kl")
+                    val klIds = kl?.let { arr -> (0 until arr.length()).map { arr.optJSONObject(it)?.optInt("id") } } ?: emptyList()
+                    val klNamen = klIds.map { id -> "$id=${klassenNamen[id] ?: "?"}" }
+                    "${obj.optInt("date")}/${obj.optInt("startTime")} su=${obj.optJSONArray("su")} kl=$klNamen"
+                }
+                WebUntisErgebnis.Erfolg(geparst.plan, geparst.schulschlussZeiten, debugRohdaten)
             }
         } catch (e: WebUntisApiException) {
             WebUntisErgebnis.Fehler(e.message ?: "Unbekannter WebUntis-Fehler.")
