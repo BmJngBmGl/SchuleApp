@@ -93,8 +93,15 @@ object WebUntisClient {
             // lehnt Zeitraeume ab, die zwei verschiedene Schuljahre ueberschneiden
             // (z. B. kurz vor/nach den Sommerferien, wenn das neue Schuljahr noch
             // nicht angelegt ist) - einzelne nicht abrufbare Tage werden dann
-            // uebersprungen statt den ganzen Sync abzubrechen.
+            // uebersprungen statt den ganzen Sync abzubrechen. Der letzte
+            // Fehlertext wird trotzdem gemerkt, um ihn zu zeigen, falls am
+            // Ende gar nichts abrufbar war - sonst verschwindet die
+            // eigentliche Fehlerursache spurlos hinter einer pauschalen
+            // "kein Schuljahr aktiv"-Vermutung, die z. B. direkt nach
+            // Schuljahresbeginn schlicht falsch sein kann.
             val alleEintraege = mutableListOf<Any?>()
+            var letzterTagesFehler: String? = null
+            var mindestensEinTagOhneFehler = false
             for (tag in wochentage) {
                 try {
                     val tagesErgebnis = rpcArray(
@@ -105,11 +112,12 @@ object WebUntisClient {
                             .put("startDate", jahrMonatTag(tag))
                             .put("endDate", jahrMonatTag(tag))
                     )
+                    mindestensEinTagOhneFehler = true
                     for (i in 0 until tagesErgebnis.length()) {
                         alleEintraege.add(tagesErgebnis.get(i))
                     }
                 } catch (e: WebUntisApiException) {
-                    // einzelner Tag nicht abrufbar (z. B. ausserhalb eines Schuljahres) - ueberspringen
+                    letzterTagesFehler = e.message
                 }
             }
 
@@ -125,10 +133,16 @@ object WebUntisClient {
 
             val geparst = parseStundenplan(JSONArray(alleEintraege))
             if (geparst.plan.isEmpty()) {
-                WebUntisErgebnis.Fehler(
-                    "Login war erfolgreich, aber für keinen Tag dieser Woche waren Stunden abrufbar " +
-                        "- vermutlich ist gerade kein Schuljahr aktiv (z. B. in den Ferien)."
-                )
+                val meldung = if (!mindestensEinTagOhneFehler && letzterTagesFehler != null) {
+                    // Wirklich JEDER Tag ist mit Fehler abgebrochen - die
+                    // konkrete WebUntis-Fehlermeldung ist aussagekraeftiger
+                    // als eine geratene Ursache.
+                    "Für keinen Tag dieser Woche waren Stunden abrufbar: $letzterTagesFehler"
+                } else {
+                    "Login war erfolgreich, WebUntis hat aber für keinen Tag dieser Woche Stunden " +
+                        "zurückgegeben - evtl. falsche Kalenderwoche oder Ferien."
+                }
+                WebUntisErgebnis.Fehler(meldung)
             } else {
                 WebUntisErgebnis.Erfolg(geparst.plan, geparst.schulschlussZeiten)
             }

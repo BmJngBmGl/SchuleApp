@@ -3,8 +3,11 @@ package de.wunstorf.schulevault.ui.screens
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,7 +36,6 @@ import de.wunstorf.schulevault.data.StundenplanEintrag
 import de.wunstorf.schulevault.data.VaultRepository
 import de.wunstorf.schulevault.data.Wochentag
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DayOfWeek
@@ -53,6 +55,32 @@ private fun wochentagReihenfolgeAbHeute(): List<Wochentag> {
     }
     val alle = Wochentag.entries
     return alle.drop(heutigerIndex) + alle.take(heutigerIndex)
+}
+
+private data class RohBlock(val fach: String, val doppelstunde: Boolean)
+
+/**
+ * Fasst nur AUFEINANDERFOLGENDE gleiche Perioden zu einer Doppelstunde
+ * zusammen (naiv per List.distinct() wuerde auch nicht benachbarte
+ * Vorkommen desselben Fachs verschmelzen - z. B. Mathe als Doppelstunde am
+ * Morgen UND als separate Einzelstunde am Nachmittag wuerden dann faelschlich
+ * zu einem einzigen Eintrag zusammenfallen und die Einzelstunde wuerde in
+ * der Anzeige komplett verschwinden).
+ */
+private fun gruppiereBloecke(faecher: List<String>): List<RohBlock> {
+    val bloecke = mutableListOf<RohBlock>()
+    var i = 0
+    while (i < faecher.size) {
+        val fach = faecher[i]
+        if (i + 1 < faecher.size && faecher[i + 1] == fach) {
+            bloecke.add(RohBlock(fach, doppelstunde = true))
+            i += 2
+        } else {
+            bloecke.add(RohBlock(fach, doppelstunde = false))
+            i += 1
+        }
+    }
+    return bloecke
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,18 +110,24 @@ fun StundenplanScreen(
                 return@LaunchedEffect
             }
             for (tag in reihenfolge) {
-                val faecher = (rohplan[tag] ?: emptyList()).distinct().take(3)
+                val bloecke = gruppiereBloecke(rohplan[tag] ?: emptyList())
                 val eintraege = coroutineScope {
-                    faecher.map { fach ->
-                        async {
-                            val notiz = repository.letzteNotizFuerFach(vaultUri, fach)
-                            StundenplanEintrag(
-                                fach = fach,
-                                letztesThema = notiz?.themen?.takeIf { it.isNotEmpty() }?.joinToString(", "),
-                                notizId = notiz?.documentId
-                            )
-                        }
-                    }.awaitAll()
+                    // Notiz je EINZIGARTIGEM Fach nur einmal laden, auch wenn
+                    // es am Tag mehrfach vorkommt (Doppel- und Einzelstunde) -
+                    // spart unnoetige, doppelte IO-Zugriffe.
+                    val notizNachFach = bloecke.map { it.fach }.distinct()
+                        .associateWith { fach -> async { repository.letzteNotizFuerFach(vaultUri, fach) } }
+                        .mapValues { (_, deferred) -> deferred.await() }
+
+                    bloecke.map { block ->
+                        val notiz = notizNachFach[block.fach]
+                        StundenplanEintrag(
+                            fach = block.fach,
+                            letztesThema = notiz?.themen?.takeIf { it.isNotEmpty() }?.joinToString(", "),
+                            notizId = notiz?.documentId,
+                            doppelstunde = block.doppelstunde
+                        )
+                    }
                 }
                 eintraegeProTag[tag] = eintraege
             }
@@ -163,12 +197,25 @@ fun StundenplanScreen(
                 } else {
                     items(eintraege) { eintrag ->
                         GlowCard(onClick = { onFachKlick(eintrag.fach, eintrag.notizId) }) {
-                            Text(eintrag.fach, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = eintrag.letztesThema?.let { "Zuletzt: $it" } ?: "Noch keine Notiz vorhanden",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(eintrag.fach, style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        text = eintrag.letztesThema?.let { "Zuletzt: $it" } ?: "Noch keine Notiz vorhanden",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    text = if (eintrag.doppelstunde) "Doppelstunde" else "Einzelstunde",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
                         }
                     }
                 }
