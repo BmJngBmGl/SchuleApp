@@ -101,6 +101,15 @@ object WebUntisClient {
                 ""
             }
 
+            // In der Oberstufe (Kurssystem) ist "su" (Fach) in den Stunden-
+            // Rohdaten oft leer - der tatsaechliche Kursname (z. B. "Srt",
+            // "Bdt") haengt stattdessen nur als ID am "kl"-Feld ("Klasse",
+            // hier faktisch der Kurs) und muss ueber eine eigene Abfrage
+            // aufgeloest werden. Schlaegt das fehl (z. B. anderer Methodenname
+            // an dieser Schule), bleibt die Zuordnung einfach leer statt den
+            // ganzen Sync abzubrechen.
+            val klassenNamen = ladeKlassenNamen(endpoint)
+
             val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
             val montag = heute.minus(DatePeriod(days = heute.dayOfWeek.value - 1))
             val wochentage = (0..4).map { montag.plus(DatePeriod(days = it)) }
@@ -147,7 +156,7 @@ object WebUntisClient {
                 // ignorieren
             }
 
-            val geparst = parseStundenplan(JSONArray(alleEintraege))
+            val geparst = parseStundenplan(JSONArray(alleEintraege), klassenNamen)
             if (geparst.plan.isEmpty()) {
                 val meldung = if (!mindestensEinTagOhneFehler && letzterTagesFehler != null) {
                     // Wirklich JEDER Tag ist mit Fehler abgebrochen - die
@@ -245,6 +254,27 @@ object WebUntisClient {
         }
     }
 
+    /**
+     * Liefert id -> Anzeigename fuer alle "Klassen" (in Oberstufen-
+     * Kurssystemen faktisch die Kurse). Feldname fuer den Langnamen ist bei
+     * dieser Methode "longName" (Grossbuchstabe) statt "longname" wie bei
+     * Faechern - beides wird probiert, dazu noch "name" als Kurzname-Fallback.
+     */
+    private fun ladeKlassenNamen(endpoint: String): Map<Int, String> {
+        return try {
+            val klassen = rpcArray(endpoint, "getKlassen", JSONObject())
+            (0 until klassen.length()).mapNotNull { i ->
+                val klasse = klassen.getJSONObject(i)
+                val id = klasse.optInt("id")
+                val name = klasse.optString("longName").ifBlank { klasse.optString("longname") }
+                    .ifBlank { klasse.optString("name") }
+                if (name.isBlank()) null else id to name
+            }.toMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
     private fun jsonRpcEndpoint(server: String, schule: String): String =
         "https://$server/WebUntis/jsonrpc.do?school=" + URLEncoder.encode(schule, "UTF-8")
 
@@ -311,16 +341,24 @@ object WebUntisClient {
         val schulschlussZeiten: Map<Wochentag, String>
     )
 
-    private fun parseStundenplan(stunden: JSONArray): GeparsterStundenplan {
+    private fun parseStundenplan(stunden: JSONArray, klassenNamen: Map<Int, String>): GeparsterStundenplan {
         val eintraege = (0 until stunden.length()).mapNotNull { index ->
             val stunde = stunden.getJSONObject(index)
             if (stunde.optString("code") == "cancelled") return@mapNotNull null
 
             val wochentag = datumZuWochentag(stunde.optInt("date")) ?: return@mapNotNull null
+
             val faecher = stunde.optJSONArray("su")
-            if (faecher == null || faecher.length() == 0) return@mapNotNull null
-            val fachObjekt = faecher.getJSONObject(0)
-            val fach = fachObjekt.optString("longname").ifBlank { fachObjekt.optString("name") }
+            val fach = if (faecher != null && faecher.length() > 0) {
+                val fachObjekt = faecher.getJSONObject(0)
+                fachObjekt.optString("longname").ifBlank { fachObjekt.optString("name") }
+            } else {
+                // Oberstufen-Kurssystem: "su" ist leer, der Kursname haengt
+                // stattdessen nur als ID am "kl"-Feld ("Klasse"/Kurs) -
+                // ueber die vorab geladene Klassen-Namenstabelle aufloesen.
+                val klasseId = stunde.optJSONArray("kl")?.optJSONObject(0)?.optInt("id")
+                klasseId?.let { klassenNamen[it] } ?: ""
+            }
             if (fach.isBlank()) return@mapNotNull null
 
             StundenEintrag(wochentag, stunde.optInt("startTime"), stunde.optInt("endTime"), fach)
