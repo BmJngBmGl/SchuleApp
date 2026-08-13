@@ -156,11 +156,13 @@ object WebUntisClient {
                     "Für keinen Tag dieser Woche waren Stunden abrufbar: $letzterTagesFehler"
                 } else if (alleEintraege.isNotEmpty()) {
                     // WebUntis hat Rohdaten geliefert, aber keine davon hat
-                    // die Parser-Filter ueberlebt (z. B. fehlendes "su"-Feld
-                    // oder alles als "cancelled" markiert) - klar ein anderes
-                    // Problem als eine leere Woche, deshalb eigene Meldung.
+                    // die Parser-Filter ueberlebt (z. B. andere Feldnamen als
+                    // angenommen) - der erste Rohdatensatz im Klartext ist
+                    // die schnellste Diagnose, statt weiter zu raten.
+                    val beispiel = (alleEintraege.firstOrNull() as? JSONObject)?.toString()?.take(600)
                     "WebUntis hat ${alleEintraege.size} Rohdatensätze für diese Woche geliefert, aber keiner " +
-                        "enthielt eine auswertbare Stunde (unerwartetes Datenformat)."
+                        "enthielt eine auswertbare Stunde (unerwartetes Datenformat)." +
+                        (beispiel?.let { " Beispiel: $it" } ?: "")
                 } else {
                     "Login war erfolgreich, WebUntis hat aber für keinen Tag dieser Woche Stunden " +
                         "zurückgegeben - evtl. falsche Kalenderwoche oder Ferien.$schuljahrInfo"
