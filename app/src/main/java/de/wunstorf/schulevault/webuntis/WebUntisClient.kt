@@ -85,6 +85,22 @@ object WebUntisClient {
             val personId = loginErgebnis.getInt("personId")
             val personType = loginErgebnis.optInt("personType", 5)
 
+            // Rein diagnostisch: falls am Ende gar nichts abrufbar ist, hilft
+            // die Info, welches Schuljahr der Server aktuell als "aktiv"
+            // fuehrt, enorm bei der Ursachensuche (z. B. falls der Account
+            // serverseitig noch am alten Schuljahr haengt, obwohl im Browser
+            // schon der neue Stundenplan sichtbar ist). Muss VOR dem Logout
+            // erfasst werden, danach ist die Session ungueltig.
+            val schuljahrInfo = try {
+                val ergebnis = rpcObjekt(endpoint, "getCurrentSchoolyear", JSONObject())
+                val name = ergebnis.optString("name")
+                val start = ergebnis.optInt("startDate")
+                val ende = ergebnis.optInt("endDate")
+                if (name.isNotBlank()) " Laut Server aktuell aktives Schuljahr: \"$name\" ($start–$ende)." else ""
+            } catch (e: Exception) {
+                ""
+            }
+
             val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
             val montag = heute.minus(DatePeriod(days = heute.dayOfWeek.value - 1))
             val wochentage = (0..4).map { montag.plus(DatePeriod(days = it)) }
@@ -138,9 +154,16 @@ object WebUntisClient {
                     // konkrete WebUntis-Fehlermeldung ist aussagekraeftiger
                     // als eine geratene Ursache.
                     "Für keinen Tag dieser Woche waren Stunden abrufbar: $letzterTagesFehler"
+                } else if (alleEintraege.isNotEmpty()) {
+                    // WebUntis hat Rohdaten geliefert, aber keine davon hat
+                    // die Parser-Filter ueberlebt (z. B. fehlendes "su"-Feld
+                    // oder alles als "cancelled" markiert) - klar ein anderes
+                    // Problem als eine leere Woche, deshalb eigene Meldung.
+                    "WebUntis hat ${alleEintraege.size} Rohdatensätze für diese Woche geliefert, aber keiner " +
+                        "enthielt eine auswertbare Stunde (unerwartetes Datenformat)."
                 } else {
                     "Login war erfolgreich, WebUntis hat aber für keinen Tag dieser Woche Stunden " +
-                        "zurückgegeben - evtl. falsche Kalenderwoche oder Ferien."
+                        "zurückgegeben - evtl. falsche Kalenderwoche oder Ferien.$schuljahrInfo"
                 }
                 WebUntisErgebnis.Fehler(meldung)
             } else {
