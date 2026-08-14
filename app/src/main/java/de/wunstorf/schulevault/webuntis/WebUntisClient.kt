@@ -106,13 +106,18 @@ object WebUntisClient {
                 ""
             }
 
-            // In der Oberstufe (Kurssystem) ist "su" (Fach) in den Stunden-
-            // Rohdaten oft leer - der tatsaechliche Kursname (z. B. "Srt",
-            // "Bdt") haengt stattdessen nur als ID am "kl"-Feld ("Klasse",
-            // hier faktisch der Kurs) und muss ueber eine eigene Abfrage
-            // aufgeloest werden. Schlaegt das fehl (z. B. anderer Methodenname
-            // an dieser Schule), bleibt die Zuordnung einfach leer statt den
-            // ganzen Sync abzubrechen.
+            // "su" (Fach) in den Stunden-Rohdaten enthaelt nur eine ID, keinen
+            // eingebetteten Namen (z. B. "su":[{"id":138}]) - der Klarname
+            // muss ueber eine eigene Abfrage (getSubjects) aufgeloest werden.
+            // "kl" (Klasse) wird NICHT mehr als Fach-Fallback genutzt: ein
+            // Live-Test zeigte, dass Eintraege mit leerem "su" tatsaechlich
+            // schulweite Sondertermine sind (z. B. eine Jahrgangsversammlung
+            // mit "kl" auf Dutzende Klassen gleichzeitig), nicht regulaere
+            // Stunden - die kl-Aufloesung bleibt nur fuer die Debug-Ausgabe
+            // erhalten. Schlaegt getSubjects fehl (z. B. anderer Methodenname
+            // an dieser Schule), bleiben Faecher einfach unaufgeloest statt
+            // den ganzen Sync abzubrechen.
+            val fachNamen = ladeFachNamen(endpoint)
             val klassenNamen = ladeKlassenNamen(endpoint)
 
             val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
@@ -161,7 +166,7 @@ object WebUntisClient {
                 // ignorieren
             }
 
-            val geparst = parseStundenplan(JSONArray(alleEintraege), klassenNamen)
+            val geparst = parseStundenplan(JSONArray(alleEintraege), fachNamen)
             if (geparst.plan.isEmpty()) {
                 val meldung = if (!mindestensEinTagOhneFehler && letzterTagesFehler != null) {
                     // Wirklich JEDER Tag ist mit Fehler abgebrochen - die
@@ -184,10 +189,12 @@ object WebUntisClient {
                 WebUntisErgebnis.Fehler(meldung)
             } else {
                 val debugRohdaten = alleEintraege.mapNotNull { it as? JSONObject }.joinToString(" | ") { obj ->
-                    val kl = obj.optJSONArray("kl")
-                    val klIds = kl?.let { arr -> (0 until arr.length()).map { arr.optJSONObject(it)?.optInt("id") } } ?: emptyList()
-                    val klNamen = klIds.map { id -> "$id=${klassenNamen[id] ?: "?"}" }
-                    "${obj.optInt("date")}/${obj.optInt("startTime")} su=${obj.optJSONArray("su")} kl=$klNamen"
+                    val suIds = obj.optJSONArray("su")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optInt("id") } } ?: emptyList()
+                    val suNamen = suIds.map { id -> "$id=${fachNamen[id] ?: "?"}" }
+                    val klIds = obj.optJSONArray("kl")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optInt("id") } } ?: emptyList()
+                    val klKurz = klIds.take(3).map { id -> "$id=${klassenNamen[id] ?: "?"}" } +
+                        if (klIds.size > 3) listOf("+${klIds.size - 3} weitere") else emptyList()
+                    "${obj.optInt("date")}/${obj.optInt("startTime")} su=$suNamen kl=$klKurz"
                 }
                 WebUntisErgebnis.Erfolg(geparst.plan, geparst.schulschlussZeiten, debugRohdaten)
             }
@@ -286,6 +293,22 @@ object WebUntisClient {
         }
     }
 
+    /** Liefert id -> Anzeigename fuer alle Faecher (getSubjects) - "su" in den Stunden-Rohdaten enthaelt nur die ID. */
+    private fun ladeFachNamen(endpoint: String): Map<Int, String> {
+        return try {
+            val faecher = rpcArray(endpoint, "getSubjects", JSONObject())
+            (0 until faecher.length()).mapNotNull { i ->
+                val fach = faecher.getJSONObject(i)
+                val id = fach.optInt("id")
+                val name = fach.optString("longName").ifBlank { fach.optString("longname") }
+                    .ifBlank { fach.optString("name") }
+                if (name.isBlank()) null else id to name
+            }.toMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
     private fun jsonRpcEndpoint(server: String, schule: String): String =
         "https://$server/WebUntis/jsonrpc.do?school=" + URLEncoder.encode(schule, "UTF-8")
 
@@ -352,25 +375,22 @@ object WebUntisClient {
         val schulschlussZeiten: Map<Wochentag, String>
     )
 
-    private fun parseStundenplan(stunden: JSONArray, klassenNamen: Map<Int, String>): GeparsterStundenplan {
+    private fun parseStundenplan(stunden: JSONArray, fachNamen: Map<Int, String>): GeparsterStundenplan {
         val eintraege = (0 until stunden.length()).mapNotNull { index ->
             val stunde = stunden.getJSONObject(index)
             if (stunde.optString("code") == "cancelled") return@mapNotNull null
 
             val wochentag = datumZuWochentag(stunde.optInt("date")) ?: return@mapNotNull null
 
-            val faecher = stunde.optJSONArray("su")
-            val fach = if (faecher != null && faecher.length() > 0) {
-                val fachObjekt = faecher.getJSONObject(0)
-                fachObjekt.optString("longname").ifBlank { fachObjekt.optString("name") }
-            } else {
-                // Oberstufen-Kurssystem: "su" ist leer, der Kursname haengt
-                // stattdessen nur als ID am "kl"-Feld ("Klasse"/Kurs) -
-                // ueber die vorab geladene Klassen-Namenstabelle aufloesen.
-                val klasseId = stunde.optJSONArray("kl")?.optJSONObject(0)?.optInt("id")
-                klasseId?.let { klassenNamen[it] } ?: ""
-            }
-            if (fach.isBlank()) return@mapNotNull null
+            // "su" enthaelt nur eine ID (z. B. {"id":138}), keinen
+            // eingebetteten Namen - Aufloesung ueber die vorab per
+            // getSubjects geladene Namenstabelle. Ein leeres "su" bedeutet
+            // laut Live-Test KEINE regulaere Stunde (sondern z. B. eine
+            // schulweite Jahrgangsversammlung mit riesiger "kl"-Liste) -
+            // solche Eintraege werden bewusst NICHT ueber "kl" aufgeloest,
+            // sondern uebersprungen.
+            val fachId = stunde.optJSONArray("su")?.optJSONObject(0)?.optInt("id") ?: return@mapNotNull null
+            val fach = fachNamen[fachId] ?: return@mapNotNull null
 
             StundenEintrag(wochentag, stunde.optInt("startTime"), stunde.optInt("endTime"), fach)
         }
