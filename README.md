@@ -29,7 +29,9 @@ Dark-Theme.
 - **IServ-Kalender**: beliebig viele ICS-Kalender-Abos (Benutzername/Passwort
   per HTTP-Basic-Auth) werden read-only in der Übersicht eingeblendet; der
   zuletzt geladene Stand wird lokal gecacht und beim Start sofort angezeigt
-- **WebUntis-Sync**: Stundenplan der aktuellen Woche sowie offene
+- **WebUntis-Sync**: Stundenplan der nächsten 5 Schultage ab heute (greift am
+  Donnerstag/Freitag automatisch in die Folgewoche vor, statt bereits
+  vergangene Tage derselben Kalenderwoche erneut anzuzeigen) sowie offene
   Hausaufgaben (nächste 60 Tage) lassen sich manuell aus WebUntis
   synchronisieren bzw. importieren (Zahnrad-Icon); Hausaufgaben-Import
   erkennt bereits importierte Einträge und legt sie nicht doppelt an
@@ -37,7 +39,9 @@ Dark-Theme.
   Hausaufgaben-Import) und IServ-Kalender automatisch um 8:00 sowie nach dem
   tatsächlichen Schulschluss des Tages (aus WebUntis erfasst, Default 13:45,
   falls noch nichts erfasst wurde) - erfordert einmalig eingerichtete
-  WebUntis-/IServ-Zugangsdaten in den Einstellungen
+  WebUntis-/IServ-Zugangsdaten in den Einstellungen. Ändert sich der
+  Stundenplan gegenüber dem zuletzt gespeicherten Stand (z. B. Vertretung),
+  gibt es zusätzlich eine Push-Benachrichtigung mit den betroffenen Tagen
 - **Volltextsuche** über alle Notizen (Titel, Body, Themen)
 - **Automatische Update-Prüfung** beim Start gegen die GitHub Releases dieses
   Repos, mit Download+Installation nach Bestätigung

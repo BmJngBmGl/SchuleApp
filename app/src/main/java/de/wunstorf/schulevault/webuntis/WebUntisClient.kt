@@ -5,9 +5,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DatePeriod
+import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.datetime.todayIn
 import org.json.JSONArray
@@ -31,12 +31,7 @@ sealed class WebUntisErgebnis {
      */
     data class Erfolg(
         val plan: Map<Wochentag, List<String>>,
-        val schulschlussZeiten: Map<Wochentag, String> = emptyMap(),
-        // Temporaer waehrend der Live-Fehlersuche zur falschen Kurs-/Fach-
-        // Zuordnung: kompakter Dump von su/kl je Rohdatensatz, damit sich
-        // das ohne weitere Screenshot-Runden direkt im Status-Text pruefen
-        // laesst. Kann entfernt werden, sobald die Feldzuordnung stimmt.
-        val debugRohdaten: String = ""
+        val schulschlussZeiten: Map<Wochentag, String> = emptyMap()
     ) : WebUntisErgebnis()
     data class Fehler(val meldung: String) : WebUntisErgebnis()
 }
@@ -109,20 +104,20 @@ object WebUntisClient {
             // "su" (Fach) in den Stunden-Rohdaten enthaelt nur eine ID, keinen
             // eingebetteten Namen (z. B. "su":[{"id":138}]) - der Klarname
             // muss ueber eine eigene Abfrage (getSubjects) aufgeloest werden.
-            // "kl" (Klasse) wird NICHT mehr als Fach-Fallback genutzt: ein
-            // Live-Test zeigte, dass Eintraege mit leerem "su" tatsaechlich
-            // schulweite Sondertermine sind (z. B. eine Jahrgangsversammlung
-            // mit "kl" auf Dutzende Klassen gleichzeitig), nicht regulaere
-            // Stunden - die kl-Aufloesung bleibt nur fuer die Debug-Ausgabe
-            // erhalten. Schlaegt getSubjects fehl (z. B. anderer Methodenname
-            // an dieser Schule), bleiben Faecher einfach unaufgeloest statt
-            // den ganzen Sync abzubrechen.
+            // Ein leeres "su" bedeutet laut Live-Test KEINE regulaere Stunde
+            // (sondern z. B. eine schulweite Jahrgangsversammlung), solche
+            // Eintraege werden beim Parsen uebersprungen. Schlaegt getSubjects
+            // fehl (z. B. anderer Methodenname an dieser Schule), bleiben
+            // Faecher einfach unaufgeloest statt den ganzen Sync abzubrechen.
             val fachNamen = ladeFachNamen(endpoint)
-            val klassenNamen = ladeKlassenNamen(endpoint)
 
+            // Naechste 5 Schultage ab heute statt starr "diese Kalenderwoche
+            // Montag-Freitag" - so zeigt die App am Donnerstag/Freitag nicht
+            // laenger schon vergangene Tage derselben Woche erneut an,
+            // sondern greift automatisch in die Folgewoche vor (Wochenenden
+            // werden uebersprungen).
             val heute = Clock.System.todayIn(TimeZone.currentSystemDefault())
-            val montag = heute.minus(DatePeriod(days = heute.dayOfWeek.value - 1))
-            val wochentage = (0..4).map { montag.plus(DatePeriod(days = it)) }
+            val wochentage = naechsteFuenfSchultage(heute)
 
             // Tag-fuer-Tag statt der ganzen Woche auf einmal abfragen: WebUntis
             // lehnt Zeitraeume ab, die zwei verschiedene Schuljahre ueberschneiden
@@ -188,15 +183,7 @@ object WebUntisClient {
                 }
                 WebUntisErgebnis.Fehler(meldung)
             } else {
-                val debugRohdaten = alleEintraege.mapNotNull { it as? JSONObject }.joinToString(" | ") { obj ->
-                    val suIds = obj.optJSONArray("su")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optInt("id") } } ?: emptyList()
-                    val suNamen = suIds.map { id -> "$id=${fachNamen[id] ?: "?"}" }
-                    val klIds = obj.optJSONArray("kl")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optInt("id") } } ?: emptyList()
-                    val klKurz = klIds.take(3).map { id -> "$id=${klassenNamen[id] ?: "?"}" } +
-                        if (klIds.size > 3) listOf("+${klIds.size - 3} weitere") else emptyList()
-                    "${obj.optInt("date")}/${obj.optInt("startTime")} su=$suNamen kl=$klKurz"
-                }
-                WebUntisErgebnis.Erfolg(geparst.plan, geparst.schulschlussZeiten, debugRohdaten)
+                WebUntisErgebnis.Erfolg(geparst.plan, geparst.schulschlussZeiten)
             }
         } catch (e: WebUntisApiException) {
             WebUntisErgebnis.Fehler(e.message ?: "Unbekannter WebUntis-Fehler.")
@@ -269,27 +256,6 @@ object WebUntisClient {
             WebUntisHausaufgabenErgebnis.Fehler(e.message ?: "Unbekannter WebUntis-Fehler.")
         } catch (e: Exception) {
             WebUntisHausaufgabenErgebnis.Fehler("Verbindung fehlgeschlagen: ${e.message ?: e.javaClass.simpleName}")
-        }
-    }
-
-    /**
-     * Liefert id -> Anzeigename fuer alle "Klassen" (in Oberstufen-
-     * Kurssystemen faktisch die Kurse). Feldname fuer den Langnamen ist bei
-     * dieser Methode "longName" (Grossbuchstabe) statt "longname" wie bei
-     * Faechern - beides wird probiert, dazu noch "name" als Kurzname-Fallback.
-     */
-    private fun ladeKlassenNamen(endpoint: String): Map<Int, String> {
-        return try {
-            val klassen = rpcArray(endpoint, "getKlassen", JSONObject())
-            (0 until klassen.length()).mapNotNull { i ->
-                val klasse = klassen.getJSONObject(i)
-                val id = klasse.optInt("id")
-                val name = klasse.optString("longName").ifBlank { klasse.optString("longname") }
-                    .ifBlank { klasse.optString("name") }
-                if (name.isBlank()) null else id to name
-            }.toMap()
-        } catch (e: Exception) {
-            emptyMap()
         }
     }
 
@@ -449,4 +415,17 @@ object WebUntisClient {
 
     private fun jahrMonatTag(datum: LocalDate): Int =
         "%04d%02d%02d".format(datum.year, datum.monthNumber, datum.dayOfMonth).toInt()
+
+    /** Liefert die naechsten 5 Werktage (Mo-Fr) ab einschliesslich "ab" - ueberspringt Wochenenden, greift dafuer automatisch in die Folgewoche vor. */
+    private fun naechsteFuenfSchultage(ab: LocalDate): List<LocalDate> {
+        val tage = mutableListOf<LocalDate>()
+        var datum = ab
+        while (tage.size < 5) {
+            if (datum.dayOfWeek != DayOfWeek.SATURDAY && datum.dayOfWeek != DayOfWeek.SUNDAY) {
+                tage.add(datum)
+            }
+            datum = datum.plus(DatePeriod(days = 1))
+        }
+        return tage
+    }
 }

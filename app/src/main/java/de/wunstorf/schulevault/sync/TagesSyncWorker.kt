@@ -8,7 +8,9 @@ import de.wunstorf.schulevault.data.IServPreferences
 import de.wunstorf.schulevault.data.VaultPreferences
 import de.wunstorf.schulevault.data.VaultRepository
 import de.wunstorf.schulevault.data.WebUntisPreferences
+import de.wunstorf.schulevault.data.Wochentag
 import de.wunstorf.schulevault.iserv.IServSyncClient
+import de.wunstorf.schulevault.notifications.StundenplanNotifier
 import de.wunstorf.schulevault.webuntis.WebUntisClient
 import de.wunstorf.schulevault.webuntis.WebUntisErgebnis
 import de.wunstorf.schulevault.webuntis.WebUntisHausaufgabenErgebnis
@@ -60,8 +62,19 @@ class TagesSyncWorker(
 
         val stundenplanErgebnis = WebUntisClient.synchronisiereStundenplan(server, schule, benutzername, passwort)
         if (stundenplanErgebnis is WebUntisErgebnis.Erfolg) {
+            val alterPlan = repository.loadStundenplan(vaultUri)
             repository.speichereStundenplan(vaultUri, stundenplanErgebnis.plan)
             webUntisPreferences.schulschlussZeitenSpeichern(stundenplanErgebnis.schulschlussZeiten)
+
+            // Nur benachrichtigen, wenn es bereits einen Stand zum
+            // Vergleichen gab (sonst wuerde der allererste Sync faelschlich
+            // als "Aenderung" gemeldet).
+            if (alterPlan.isNotEmpty()) {
+                val geaenderteTage = Wochentag.entries.filter { tag ->
+                    alterPlan[tag].orEmpty() != stundenplanErgebnis.plan[tag].orEmpty()
+                }
+                StundenplanNotifier.benachrichtigeBeiAenderung(applicationContext, geaenderteTage)
+            }
         }
 
         val hausaufgabenErgebnis = WebUntisClient.ladeHausaufgaben(server, schule, benutzername, passwort)

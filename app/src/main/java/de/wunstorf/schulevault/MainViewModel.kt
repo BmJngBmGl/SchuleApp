@@ -14,8 +14,10 @@ import de.wunstorf.schulevault.data.VaultNote
 import de.wunstorf.schulevault.data.VaultPreferences
 import de.wunstorf.schulevault.data.VaultRepository
 import de.wunstorf.schulevault.data.WebUntisPreferences
+import de.wunstorf.schulevault.data.Wochentag
 import de.wunstorf.schulevault.iserv.IServSyncClient
 import de.wunstorf.schulevault.notifications.NotificationScheduler
+import de.wunstorf.schulevault.notifications.StundenplanNotifier
 import de.wunstorf.schulevault.sync.TagesSyncScheduler
 import de.wunstorf.schulevault.update.UpdateChecker
 import de.wunstorf.schulevault.update.UpdateInfo
@@ -378,13 +380,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _webUntisSyncLaeuft.value = true
             when (val ergebnis = WebUntisClient.synchronisiereStundenplan(server, schule, benutzername, passwort)) {
                 is WebUntisErgebnis.Erfolg -> {
+                    val alterPlan = repository.loadStundenplan(uri)
                     val gespeichert = repository.speichereStundenplan(uri, ergebnis.plan)
                     webUntisPreferences.schulschlussZeitenSpeichern(ergebnis.schulschlussZeiten)
-                    val debugZusatz = ergebnis.debugRohdaten.takeIf { it.isNotBlank() }?.let { "\n\nDebug: $it" } ?: ""
+                    if (gespeichert && alterPlan.isNotEmpty()) {
+                        val geaenderteTage = Wochentag.entries.filter { tag ->
+                            alterPlan[tag].orEmpty() != ergebnis.plan[tag].orEmpty()
+                        }
+                        StundenplanNotifier.benachrichtigeBeiAenderung(getApplication(), geaenderteTage)
+                    }
                     onFertig(
                         gespeichert,
                         if (gespeichert) {
-                            "Stundenplan erfolgreich synchronisiert.$debugZusatz"
+                            "Stundenplan erfolgreich synchronisiert."
                         } else {
                             "Stundenplan geladen, aber Speichern im Vault fehlgeschlagen."
                         }
