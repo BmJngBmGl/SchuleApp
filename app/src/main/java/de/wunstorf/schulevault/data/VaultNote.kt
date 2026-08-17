@@ -37,6 +37,10 @@ data class VaultNote(
 
     val verstanden: Boolean
         get() = frontmatter["verstanden"]?.trim()?.trim('"') == "true"
+
+    /** Manuell im Vault gepflegte Markierung (siehe Vault-Formatierung.md) - pro Fach nur eine Notiz gleichzeitig "true". */
+    val latest: Boolean
+        get() = frontmatter["latest"]?.trim()?.trim('"') == "true"
 }
 
 /** Wandelt "[a, b, c]" bzw. "a, b, c" in eine Liste einzelner, getrimmter Eintraege um. */

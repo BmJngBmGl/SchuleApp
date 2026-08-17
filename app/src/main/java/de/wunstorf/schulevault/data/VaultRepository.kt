@@ -293,17 +293,23 @@ class VaultRepository(private val context: Context) {
         }
 
     /**
-     * Liefert die zuletzt bearbeitete Notiz eines Fachs (nach "datum"
-     * sortiert) - fuer die Themen-Anzeige UND als Sprungziel bei Klick im
-     * Stundenplan. Notizen ohne gueltiges Datum (z. B. aeltere Archiv-
-     * Notizen ohne datum-Feld) werden dabei uebersprungen, da sie sich
-     * zeitlich nicht einordnen lassen.
+     * Liefert die aktuellste Notiz eines Fachs - fuer die Themen-Anzeige UND
+     * als Sprungziel bei Klick im Stundenplan. Bevorzugt die manuell im
+     * Vault gepflegte "latest"-Markierung (siehe Vault-Formatierung.md,
+     * pro Fach nur eine Notiz gleichzeitig "true") gegenueber einem reinen
+     * Datumsvergleich - das funktioniert auch fuer Notizen ohne "datum"
+     * oder wenn das Datum nicht die inhaltliche Aktualitaet widerspiegelt
+     * (z. B. Referenz-/Leitfaden-Notizen). Ist keine Notiz als "latest"
+     * markiert (z. B. in Faechern, die die Konvention noch nicht nutzen),
+     * faellt die Funktion auf den bisherigen Datumsvergleich zurueck.
      */
     suspend fun letzteNotizFuerFach(rootUri: Uri, fach: String): VaultNote? = withContext(Dispatchers.IO) {
-        listNotesInFolder(rootUri, fach)
-            .mapNotNull { note -> note.datum?.let { parseLernnotizDatum(it) }?.let { it to note } }
-            .maxByOrNull { (datum, _) -> datum }
-            ?.second
+        val notizen = listNotesInFolder(rootUri, fach)
+        notizen.firstOrNull { it.latest }
+            ?: notizen
+                .mapNotNull { note -> note.datum?.let { parseLernnotizDatum(it) }?.let { it to note } }
+                .maxByOrNull { (datum, _) -> datum }
+                ?.second
     }
 
     /** Erwartetes Format bei Lernnotizen laut Vault-Konvention: "JJJJ-MM-TT" (anders als bei Terminen). */

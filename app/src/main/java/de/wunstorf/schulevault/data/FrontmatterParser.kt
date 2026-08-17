@@ -33,12 +33,43 @@ object FrontmatterParser {
         val bodyLines = lines.drop(endIndex + 2)
 
         val map = mutableMapOf<String, String>()
-        for (line in frontmatterLines) {
-            val trimmed = line.trim()
-            if (trimmed.isEmpty() || !trimmed.contains(":")) continue
+        var index = 0
+        while (index < frontmatterLines.size) {
+            val trimmed = frontmatterLines[index].trim()
+            if (trimmed.isEmpty() || !trimmed.contains(":")) {
+                index++
+                continue
+            }
             val key = trimmed.substringBefore(":").trim()
             val value = trimmed.substringAfter(":").trim()
-            if (key.isNotEmpty()) map[key] = value
+            if (key.isEmpty()) {
+                index++
+                continue
+            }
+            if (value.isEmpty()) {
+                // Moegliche YAML-Blockliste statt Inline-Liste ("key:"
+                // gefolgt von "  - item"-Zeilen) - Obsidian formatiert
+                // Listen bei jeder programmatischen Frontmatter-Aenderung
+                // (z. B. ueber die MCP-Anbindung) so um, nicht nur beim
+                // manuellen Bearbeiten. Wird zur selben "[a, b]"-Inline-
+                // Darstellung zusammengefasst, die parseInlineList erwartet,
+                // damit beide Schreibweisen gleichwertig funktionieren.
+                val items = mutableListOf<String>()
+                var lookahead = index + 1
+                while (lookahead < frontmatterLines.size) {
+                    val naechste = frontmatterLines[lookahead].trim()
+                    if (!naechste.startsWith("- ") && naechste != "-") break
+                    items.add(naechste.removePrefix("-").trim())
+                    lookahead++
+                }
+                if (items.isNotEmpty()) {
+                    map[key] = "[" + items.joinToString(", ") + "]"
+                    index = lookahead
+                    continue
+                }
+            }
+            map[key] = value
+            index++
         }
 
         return map to bodyLines.joinToString("\n")
